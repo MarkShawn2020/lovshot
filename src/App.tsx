@@ -4,16 +4,18 @@ import { listen } from "@tauri-apps/api/event";
 import { register, unregister } from "@tauri-apps/plugin-global-shortcut";
 import "./App.css";
 
+type CaptureFormat = "image" | "gif" | "video";
+
 interface RecordingState {
   is_recording: boolean;
   frame_count: number;
 }
 
 function App() {
+  const [format, setFormat] = useState<CaptureFormat>("image");
   const [isRecording, setIsRecording] = useState(false);
   const [frameCount, setFrameCount] = useState(0);
   const [savedPath, setSavedPath] = useState("");
-  const [fps, setFps] = useState(10);
 
   useEffect(() => {
     const unlisten = listen<RecordingState>("recording-state", (event) => {
@@ -21,11 +23,9 @@ function App() {
       setFrameCount(event.payload.frame_count);
     });
 
-    // Register global shortcut
     register("CommandOrControl+Shift+G", async () => {
       if (!isRecording) {
         await invoke("open_selector");
-        setIsRecording(true);
         setSavedPath("");
       }
     }).catch(console.error);
@@ -36,8 +36,9 @@ function App() {
     };
   }, [isRecording]);
 
-  const handleStartCapture = async () => {
+  const handleCapture = async () => {
     setSavedPath("");
+    // TODO: pass format to selector
     await invoke("open_selector");
   };
 
@@ -47,56 +48,61 @@ function App() {
     try {
       const path = await invoke<string>("save_gif");
       setSavedPath(path);
+      setTimeout(() => setSavedPath(""), 3000);
     } catch (e) {
-      console.error("Failed to save GIF:", e);
+      console.error("Failed to save:", e);
     }
     setFrameCount(0);
   };
 
-  const handleFpsChange = async (newFps: number) => {
-    setFps(newFps);
-    await invoke("set_fps", { fps: newFps });
-  };
-
   return (
     <main className="container">
-      <h1>lovshot</h1>
-      <p className="subtitle">GIF Screen Recorder</p>
+      <div className="header">
+        <h1>lovshot</h1>
+      </div>
+
+      <div className="format-tabs">
+        <button
+          className={`tab ${format === "image" ? "active" : ""}`}
+          onClick={() => setFormat("image")}
+          disabled={isRecording}
+        >
+          Image
+        </button>
+        <button
+          className={`tab ${format === "gif" ? "active" : ""}`}
+          onClick={() => setFormat("gif")}
+          disabled={isRecording}
+        >
+          GIF
+        </button>
+        <button
+          className={`tab ${format === "video" ? "active" : ""}`}
+          onClick={() => setFormat("video")}
+          disabled={isRecording}
+        >
+          Video
+        </button>
+      </div>
 
       <div className="controls">
-        <div className="fps-control">
-          <label>FPS: {fps}</label>
-          <input
-            type="range"
-            min="5"
-            max="30"
-            value={fps}
-            onChange={(e) => handleFpsChange(Number(e.target.value))}
-            disabled={isRecording}
-          />
-        </div>
-
         {!isRecording ? (
-          <button className="btn-primary" onClick={handleStartCapture}>
-            Start Capture
+          <button className="btn-primary" onClick={handleCapture}>
+            Capture
           </button>
         ) : (
           <button className="btn-stop" onClick={handleStopRecording}>
-            Stop Recording ({frameCount} frames)
+            <span className="recording-dot" />
+            Stop ({frameCount})
           </button>
         )}
       </div>
 
       <p className="shortcut-hint">
-        Shortcut: <kbd>Cmd/Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>G</kbd>
+        <kbd>⌘</kbd> + <kbd>⇧</kbd> + <kbd>G</kbd>
       </p>
 
-      {savedPath && (
-        <div className="saved-info">
-          <p>Saved to:</p>
-          <code>{savedPath}</code>
-        </div>
-      )}
+      {savedPath && <div className="saved-toast">Saved!</div>}
     </main>
   );
 }

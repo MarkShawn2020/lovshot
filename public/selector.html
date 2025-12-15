@@ -71,6 +71,84 @@
       color: white;
       font-family: system-ui;
     }
+    #toolbar {
+      position: absolute;
+      display: none;
+      gap: 8px;
+      background: rgba(30, 30, 30, 0.95);
+      padding: 8px 12px;
+      border-radius: 8px;
+      z-index: 100;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    }
+    .toolbar-btn {
+      width: 40px;
+      height: 40px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      transition: all 0.15s;
+      background: #3a3a3a;
+      color: white;
+    }
+    .toolbar-btn:hover {
+      background: #4a4a4a;
+      transform: scale(1.05);
+    }
+    .toolbar-btn.active {
+      background: #007aff;
+      box-shadow: 0 0 0 2px rgba(0, 122, 255, 0.4);
+    }
+    .toolbar-btn.screenshot {
+      background: #34c759;
+    }
+    .toolbar-btn.screenshot:hover {
+      background: #30d158;
+    }
+    .toolbar-btn.screenshot.active {
+      background: #34c759;
+      box-shadow: 0 0 0 2px rgba(52, 199, 89, 0.4);
+    }
+    .toolbar-btn.record {
+      background: #ff3b30;
+    }
+    .toolbar-btn.record:hover {
+      background: #ff453a;
+    }
+    .toolbar-btn.record.active {
+      background: #ff3b30;
+      box-shadow: 0 0 0 2px rgba(255, 59, 48, 0.4);
+    }
+    .toolbar-btn.close {
+      background: #636366;
+    }
+    .toolbar-btn.close:hover {
+      background: #8e8e93;
+    }
+    #mode-hint {
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,0.8);
+      color: white;
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-family: system-ui, sans-serif;
+      font-size: 13px;
+      z-index: 100;
+      display: none;
+    }
+    kbd {
+      background: rgba(255,255,255,0.2);
+      padding: 2px 6px;
+      border-radius: 4px;
+      margin: 0 2px;
+    }
   </style>
 </head>
 <body>
@@ -79,7 +157,13 @@
   <div id="overlay" style="display:none"></div>
   <div id="selection"></div>
   <div id="size" style="display:none"></div>
-  <div id="info" style="display:none">Click and drag to select region. Press ESC to cancel.</div>
+  <div id="info" style="display:none">Click and drag to select region. Press <kbd>ESC</kbd> to cancel.</div>
+  <div id="mode-hint"></div>
+  <div id="toolbar">
+    <button class="toolbar-btn screenshot active" id="btn-screenshot" title="Screenshot (S)">📷</button>
+    <button class="toolbar-btn record" id="btn-record" title="Record GIF (V)">🎬</button>
+    <button class="toolbar-btn close" id="btn-close" title="Cancel (ESC)">✕</button>
+  </div>
 
   <script type="module">
     import { invoke } from 'https://unpkg.com/@tauri-apps/api@2/core';
@@ -91,8 +175,57 @@
     const sizeEl = document.getElementById('size');
     const info = document.getElementById('info');
     const loading = document.getElementById('loading');
+    const toolbar = document.getElementById('toolbar');
+    const modeHint = document.getElementById('mode-hint');
+    const btnScreenshot = document.getElementById('btn-screenshot');
+    const btnRecord = document.getElementById('btn-record');
+    const btnClose = document.getElementById('btn-close');
 
     let startX, startY, isSelecting = false;
+    let selectionRect = null;
+    let mode = 'screenshot'; // 'screenshot' or 'record'
+
+    function updateModeUI() {
+      if (mode === 'screenshot') {
+        btnScreenshot.classList.add('active');
+        btnRecord.classList.remove('active');
+        modeHint.innerHTML = 'Mode: <strong>Screenshot</strong> - Press <kbd>V</kbd> for video, <kbd>Enter</kbd> to capture';
+      } else {
+        btnScreenshot.classList.remove('active');
+        btnRecord.classList.add('active');
+        modeHint.innerHTML = 'Mode: <strong>GIF Record</strong> - Press <kbd>S</kbd> for screenshot, <kbd>Enter</kbd> to start';
+      }
+    }
+
+    async function doScreenshot() {
+      if (!selectionRect) return;
+      const scale = window.devicePixelRatio || 1;
+      await invoke('set_region', {
+        region: {
+          x: Math.round(selectionRect.x * scale),
+          y: Math.round(selectionRect.y * scale),
+          width: Math.round(selectionRect.w * scale),
+          height: Math.round(selectionRect.h * scale)
+        }
+      });
+      await invoke('save_screenshot');
+      await getCurrentWindow().close();
+    }
+
+    async function doRecord() {
+      if (!selectionRect) return;
+      const scale = window.devicePixelRatio || 1;
+      await invoke('set_region', {
+        region: {
+          x: Math.round(selectionRect.x * scale),
+          y: Math.round(selectionRect.y * scale),
+          width: Math.round(selectionRect.w * scale),
+          height: Math.round(selectionRect.h * scale)
+        }
+      });
+      await invoke('start_recording');
+      await getCurrentWindow().close();
+    }
 
     // Load screenshot as background
     try {
@@ -107,6 +240,13 @@
     }
 
     document.addEventListener('mousedown', (e) => {
+      if (e.target.closest('#toolbar')) return;
+
+      // Hide toolbar if re-selecting
+      toolbar.style.display = 'none';
+      modeHint.style.display = 'none';
+      selectionRect = null;
+
       startX = e.clientX;
       startY = e.clientY;
       isSelecting = true;
@@ -137,7 +277,7 @@
       sizeEl.textContent = `${w} x ${h}`;
     });
 
-    document.addEventListener('mouseup', async (e) => {
+    document.addEventListener('mouseup', (e) => {
       if (!isSelecting) return;
       isSelecting = false;
 
@@ -147,24 +287,61 @@
       const h = Math.abs(e.clientY - startY);
 
       if (w > 10 && h > 10) {
-        const scale = window.devicePixelRatio || 1;
-        await invoke('set_region', {
-          region: {
-            x: Math.round(x * scale),
-            y: Math.round(y * scale),
-            width: Math.round(w * scale),
-            height: Math.round(h * scale)
-          }
-        });
-        await invoke('start_recording');
-      }
+        selectionRect = { x, y, w, h };
 
+        // Position toolbar below selection
+        const toolbarX = x + w / 2 - 60;
+        const toolbarY = y + h + 10;
+        toolbar.style.left = toolbarX + 'px';
+        toolbar.style.top = toolbarY + 'px';
+        toolbar.style.display = 'flex';
+        modeHint.style.display = 'block';
+        updateModeUI();
+      } else {
+        selection.style.display = 'none';
+        sizeEl.style.display = 'none';
+        overlay.style.display = 'block';
+      }
+    });
+
+    // Toolbar button handlers
+    btnScreenshot.addEventListener('click', async () => {
+      mode = 'screenshot';
+      updateModeUI();
+      await doScreenshot();
+    });
+
+    btnRecord.addEventListener('click', async () => {
+      mode = 'record';
+      updateModeUI();
+      await doRecord();
+    });
+
+    btnClose.addEventListener('click', async () => {
       await getCurrentWindow().close();
     });
 
     document.addEventListener('keydown', async (e) => {
       if (e.key === 'Escape') {
         await getCurrentWindow().close();
+      } else if (e.key === 'v' || e.key === 'V') {
+        if (selectionRect) {
+          mode = 'record';
+          updateModeUI();
+        }
+      } else if (e.key === 's' || e.key === 'S') {
+        if (selectionRect) {
+          mode = 'screenshot';
+          updateModeUI();
+        }
+      } else if (e.key === 'Enter') {
+        if (selectionRect) {
+          if (mode === 'screenshot') {
+            await doScreenshot();
+          } else {
+            await doRecord();
+          }
+        }
       }
     });
   </script>

@@ -202,6 +202,36 @@ fn stop_recording(state: tauri::State<SharedState>) {
 }
 
 #[tauri::command]
+fn save_screenshot(state: tauri::State<SharedState>) -> Result<String, String> {
+    let s = state.lock().unwrap();
+    let region = s.region.clone().ok_or("No region selected")?;
+    drop(s);
+
+    let screens = Screen::all().map_err(|e| e.to_string())?;
+    if screens.is_empty() {
+        return Err("No screens found".to_string());
+    }
+
+    let screen = &screens[0];
+    let img = screen.capture_area(region.x, region.y, region.width, region.height)
+        .map_err(|e| e.to_string())?;
+
+    let output_dir = dirs::picture_dir()
+        .or_else(|| dirs::home_dir())
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("lovshot");
+
+    std::fs::create_dir_all(&output_dir).map_err(|e| e.to_string())?;
+
+    let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
+    let filename = output_dir.join(format!("screenshot_{}.png", timestamp));
+
+    img.save(&filename).map_err(|e| e.to_string())?;
+
+    Ok(filename.to_string_lossy().to_string())
+}
+
+#[tauri::command]
 fn save_gif(state: tauri::State<SharedState>) -> Result<String, String> {
     let mut s = state.lock().unwrap();
 

@@ -130,6 +130,7 @@ fn open_selector(app: AppHandle, state: tauri::State<SharedState>) -> Result<(),
         .skip_taskbar(true)
         .transparent(true)
         .shadow(false)
+        .accept_first_mouse(true)
         .build()
         .map_err(|e| e.to_string())?;
 
@@ -161,15 +162,12 @@ fn open_selector(app: AppHandle, state: tauri::State<SharedState>) -> Result<(),
 
 #[tauri::command]
 fn set_region(state: tauri::State<SharedState>, region: Region) {
+    println!("[DEBUG][set_region] 入口 region: x={}, y={}, w={}, h={}", region.x, region.y, region.width, region.height);
     let mut s = state.lock().unwrap();
-    let scale = s.screen_scale;
-    // Convert logical pixels to physical pixels
-    s.region = Some(Region {
-        x: (region.x as f32 * scale) as i32,
-        y: (region.y as f32 * scale) as i32,
-        width: (region.width as f32 * scale) as u32,
-        height: (region.height as f32 * scale) as u32,
-    });
+    // screenshots crate 的 capture_area 使用逻辑像素(points)坐标，不需要转换
+    // 浏览器的 clientX/clientY 已经是正确的逻辑像素
+    println!("[DEBUG][set_region] 直接使用逻辑像素坐标（不缩放）");
+    s.region = Some(region);
 }
 
 #[tauri::command]
@@ -247,30 +245,51 @@ fn stop_recording(state: tauri::State<SharedState>) {
 
 #[tauri::command]
 fn save_screenshot(state: tauri::State<SharedState>) -> Result<String, String> {
+    println!("[DEBUG][save_screenshot] 入口");
     let s = state.lock().unwrap();
     let region = s.region.clone().ok_or("No region selected")?;
+    println!("[DEBUG][save_screenshot] region: x={}, y={}, w={}, h={}", region.x, region.y, region.width, region.height);
     drop(s);
 
-    let screens = Screen::all().map_err(|e| e.to_string())?;
+    let screens = Screen::all().map_err(|e| {
+        println!("[DEBUG][save_screenshot] Screen::all 错误: {}", e);
+        e.to_string()
+    })?;
     if screens.is_empty() {
+        println!("[DEBUG][save_screenshot] 没有找到屏幕");
         return Err("No screens found".to_string());
     }
+    println!("[DEBUG][save_screenshot] 找到 {} 个屏幕", screens.len());
 
     let screen = &screens[0];
+    println!("[DEBUG][save_screenshot] 调用 capture_area: x={}, y={}, w={}, h={}", region.x, region.y, region.width, region.height);
     let img = screen.capture_area(region.x, region.y, region.width, region.height)
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| {
+            println!("[DEBUG][save_screenshot] capture_area 错误: {}", e);
+            e.to_string()
+        })?;
+    println!("[DEBUG][save_screenshot] capture_area 成功, 图像尺寸: {}x{}", img.width(), img.height());
 
     let output_dir = dirs::picture_dir()
         .or_else(|| dirs::home_dir())
         .unwrap_or_else(|| PathBuf::from("."))
         .join("lovshot");
+    println!("[DEBUG][save_screenshot] 输出目录: {:?}", output_dir);
 
     std::fs::create_dir_all(&output_dir).map_err(|e| e.to_string())?;
 
     let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
     let filename = output_dir.join(format!("screenshot_{}.png", timestamp));
+    println!("[DEBUG][save_screenshot] 保存文件: {:?}", filename);
 
-    img.save(&filename).map_err(|e| e.to_string())?;
+    img.save(&filename).map_err(|e| {
+        println!("[DEBUG][save_screenshot] 保存文件错误: {}", e);
+        e.to_string()
+    })?;
+    println!("[DEBUG][save_screenshot] 文件保存成功");
+
+    // TODO: 这里应该复制到剪切板，但目前只保存了文件
+    println!("[DEBUG][save_screenshot] 注意：目前没有复制到剪切板的逻辑！");
 
     Ok(filename.to_string_lossy().to_string())
 }

@@ -145,7 +145,11 @@
     }
 
     async function doCapture() {
-      if (!selectionRect) return;
+      console.log('[DEBUG][selector] doCapture 入口:', { selectionRect, mode });
+      if (!selectionRect) {
+        console.log('[DEBUG][selector] selectionRect 为空，退出');
+        return;
+      }
 
       // Pass logical pixels, Rust will convert to physical using accurate screen_scale
       const region = {
@@ -154,11 +158,19 @@
         width: Math.round(selectionRect.w),
         height: Math.round(selectionRect.h)
       };
+      console.log('[DEBUG][selector] 调用 set_region:', region);
 
       await invoke('set_region', { region });
+      console.log('[DEBUG][selector] set_region 完成');
 
       if (mode === 'image') {
-        await invoke('save_screenshot');
+        console.log('[DEBUG][selector] 调用 save_screenshot');
+        try {
+          const result = await invoke('save_screenshot');
+          console.log('[DEBUG][selector] save_screenshot 返回:', result);
+        } catch (e) {
+          console.error('[DEBUG][selector] save_screenshot 错误:', e);
+        }
       } else if (mode === 'gif') {
         await invoke('start_recording');
       } else if (mode === 'video') {
@@ -166,6 +178,7 @@
         await invoke('start_recording');
       }
 
+      console.log('[DEBUG][selector] 关闭窗口');
       await getCurrentWindow().close();
     }
 
@@ -243,7 +256,11 @@
     btnImage.addEventListener('click', () => { mode = 'image'; updateModeUI(); });
     btnGif.addEventListener('click', () => { mode = 'gif'; updateModeUI(); });
     btnVideo.addEventListener('click', () => { mode = 'video'; updateModeUI(); });
-    btnConfirm.addEventListener('click', doCapture);
+    btnConfirm.addEventListener('click', (e) => {
+      e.stopPropagation();
+      console.log('Confirm clicked, selectionRect:', selectionRect, 'mode:', mode);
+      doCapture();
+    });
     btnClose.addEventListener('click', () => getCurrentWindow().close());
 
     // Keyboard shortcuts

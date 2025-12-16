@@ -285,25 +285,120 @@ pub fn activate_app_by_pid(pid: i32) -> bool {
     }
 }
 
-/// Get titlebar height for a window using Accessibility API
-/// Returns the height of the titlebar in logical pixels
+/// Get application name from PID
+fn get_app_name_from_pid(pid: i32) -> Option<String> {
+    use objc::{class, msg_send, sel, sel_impl};
+
+    unsafe {
+        let workspace_class = class!(NSRunningApplication);
+        let running_app: *mut objc::runtime::Object = msg_send![
+            workspace_class,
+            runningApplicationWithProcessIdentifier: pid
+        ];
+
+        if running_app.is_null() {
+            return None;
+        }
+
+        let name: *mut objc::runtime::Object = msg_send![running_app, localizedName];
+        if name.is_null() {
+            return None;
+        }
+
+        let utf8: *const std::os::raw::c_char = msg_send![name, UTF8String];
+        if utf8.is_null() {
+            return None;
+        }
+
+        Some(std::ffi::CStr::from_ptr(utf8).to_string_lossy().into_owned())
+    }
+}
+
+/// Get titlebar height based on app name presets + AX fallback
 fn get_titlebar_height_for_window(pid: i32, win_bounds: (f64, f64, f64, f64)) -> u32 {
+    let app_name = get_app_name_from_pid(pid);
+    println!("[titlebar] pid={}, app={:?}", pid, app_name);
+
+    // Preset heights for known apps (titlebar + tabs/toolbar for browsers)
+    if let Some(ref name) = app_name {
+        let name_lower = name.to_lowercase();
+
+        // Browsers: titlebar + tab bar + address bar
+        if name_lower.contains("chrome") || name_lower.contains("chromium") {
+            return 87; // Chrome: tabs + address bar
+        }
+        if name_lower.contains("edge") {
+            return 87;
+        }
+        if name_lower.contains("firefox") {
+            return 75;
+        }
+        if name_lower.contains("safari") {
+            return 52; // Safari: tabs + address bar combined
+        }
+        if name_lower.contains("arc") {
+            return 50;
+        }
+
+        // Electron apps
+        if name_lower.contains("code") || name_lower.contains("vscode") {
+            return 87; // VS Code: title + tabs + breadcrumbs
+        }
+        if name_lower.contains("slack") {
+            return 38;
+        }
+        if name_lower.contains("discord") {
+            return 22;
+        }
+        if name_lower.contains("notion") {
+            return 45;
+        }
+
+        // Standard macOS apps - try AX detection first
+        if name_lower.contains("finder")
+            || name_lower.contains("preview")
+            || name_lower.contains("notes")
+            || name_lower.contains("mail")
+            || name_lower.contains("messages")
+            || name_lower.contains("terminal")
+            || name_lower.contains("iterm")
+        {
+            // Try AX detection for native apps
+            if let Some(h) = try_ax_detection(pid, win_bounds) {
+                println!("[titlebar] AX detected height: {}", h);
+                return h;
+            }
+            return 52; // Standard toolbar height
+        }
+    }
+
+    // Try AX detection for unknown apps
+    if let Some(h) = try_ax_detection(pid, win_bounds) {
+        println!("[titlebar] AX fallback height: {}", h);
+        return h;
+    }
+
+    // Default: standard macOS titlebar
+    28
+}
+
+/// Try to detect titlebar height using Accessibility API (works for native AppKit apps)
+fn try_ax_detection(pid: i32, win_bounds: (f64, f64, f64, f64)) -> Option<u32> {
     use accessibility_sys::*;
     use core_foundation::base::TCFType;
     use std::ptr;
 
-    // AXValueType constants (from macOS Accessibility API)
     const AX_VALUE_CG_POINT_TYPE: u32 = 1;
     const AX_VALUE_CG_SIZE_TYPE: u32 = 2;
 
+    let (win_x, win_y, win_w, win_h) = win_bounds;
+
     unsafe {
-        // Create AXUIElement for the application
         let app_element = AXUIElementCreateApplication(pid);
         if app_element.is_null() {
-            return 28; // fallback to standard macOS titlebar height
+            return None;
         }
 
-        // Get the focused/frontmost window
         let mut windows_ref: core_foundation::base::CFTypeRef = ptr::null();
         let attr_name = core_foundation::string::CFString::new("AXWindows");
         let result = AXUIElementCopyAttributeValue(
@@ -311,19 +406,15 @@ fn get_titlebar_height_for_window(pid: i32, win_bounds: (f64, f64, f64, f64)) ->
             attr_name.as_concrete_TypeRef(),
             &mut windows_ref,
         );
-
         core_foundation::base::CFRelease(app_element as _);
 
         if result != 0 || windows_ref.is_null() {
-            return 28;
+            return None;
         }
 
         let windows: core_foundation::array::CFArray<core_foundation::base::CFType> =
             core_foundation::array::CFArray::wrap_under_create_rule(windows_ref as _);
 
-        let (win_x, win_y, win_w, win_h) = win_bounds;
-
-        // Find the window that matches our bounds
         for i in 0..windows.len() {
             let Some(window) = windows.get(i) else { continue };
             let window_ref = window.as_CFTypeRef() as AXUIElementRef;
@@ -334,7 +425,6 @@ fn get_titlebar_height_for_window(pid: i32, win_bounds: (f64, f64, f64, f64)) ->
             if AXUIElementCopyAttributeValue(window_ref, pos_attr.as_concrete_TypeRef(), &mut position_ref) != 0 {
                 continue;
             }
-
             let mut point = core_graphics::geometry::CGPoint { x: 0.0, y: 0.0 };
             if !AXValueGetValue(position_ref as AXValueRef, AX_VALUE_CG_POINT_TYPE, &mut point as *mut _ as *mut _) {
                 core_foundation::base::CFRelease(position_ref);
@@ -348,7 +438,6 @@ fn get_titlebar_height_for_window(pid: i32, win_bounds: (f64, f64, f64, f64)) ->
             if AXUIElementCopyAttributeValue(window_ref, size_attr.as_concrete_TypeRef(), &mut size_ref) != 0 {
                 continue;
             }
-
             let mut size = core_graphics::geometry::CGSize { width: 0.0, height: 0.0 };
             if !AXValueGetValue(size_ref as AXValueRef, AX_VALUE_CG_SIZE_TYPE, &mut size as *mut _ as *mut _) {
                 core_foundation::base::CFRelease(size_ref);
@@ -356,7 +445,7 @@ fn get_titlebar_height_for_window(pid: i32, win_bounds: (f64, f64, f64, f64)) ->
             }
             core_foundation::base::CFRelease(size_ref);
 
-            // Check if this window matches our bounds (with small tolerance)
+            // Match window by bounds
             let tolerance = 2.0;
             if (point.x - win_x).abs() > tolerance || (point.y - win_y).abs() > tolerance {
                 continue;
@@ -365,72 +454,108 @@ fn get_titlebar_height_for_window(pid: i32, win_bounds: (f64, f64, f64, f64)) ->
                 continue;
             }
 
-            // Found matching window, now get its content area via AXRole children
-            // Try to find the toolbar or content area
-            let mut role_ref: core_foundation::base::CFTypeRef = ptr::null();
-            let role_attr = core_foundation::string::CFString::new("AXRole");
-            if AXUIElementCopyAttributeValue(window_ref, role_attr.as_concrete_TypeRef(), &mut role_ref) == 0 {
-                core_foundation::base::CFRelease(role_ref);
-            }
-
-            // Get children to find content area or toolbar
-            let mut children_ref: core_foundation::base::CFTypeRef = ptr::null();
-            let children_attr = core_foundation::string::CFString::new("AXChildren");
-            if AXUIElementCopyAttributeValue(window_ref, children_attr.as_concrete_TypeRef(), &mut children_ref) != 0 {
-                // Can't get children, use standard height
-                return 28;
-            }
-
-            let children: core_foundation::array::CFArray<core_foundation::base::CFType> =
-                core_foundation::array::CFArray::wrap_under_create_rule(children_ref as _);
-
-            let mut content_top = win_y + size.height; // Start from bottom
-
-            for j in 0..children.len() {
-                let Some(child) = children.get(j) else { continue };
-                let child_ref = child.as_CFTypeRef() as AXUIElementRef;
-
-                // Check role of child
-                let mut child_role_ref: core_foundation::base::CFTypeRef = ptr::null();
-                if AXUIElementCopyAttributeValue(child_ref, role_attr.as_concrete_TypeRef(), &mut child_role_ref) != 0 {
-                    continue;
-                }
-
-                let role_str: core_foundation::string::CFString =
-                    core_foundation::string::CFString::wrap_under_create_rule(child_role_ref as _);
-                let role = role_str.to_string();
-
-                // Skip titlebar-like elements, find content areas
-                // AXToolbar, AXGroup (content), AXSplitGroup, AXScrollArea are typical content elements
-                if role == "AXToolbar" || role == "AXGroup" || role == "AXSplitGroup"
-                   || role == "AXScrollArea" || role == "AXWebArea" {
-                    // Get position of this child
-                    let mut child_pos_ref: core_foundation::base::CFTypeRef = ptr::null();
-                    if AXUIElementCopyAttributeValue(child_ref, pos_attr.as_concrete_TypeRef(), &mut child_pos_ref) == 0 {
-                        let mut child_point = core_graphics::geometry::CGPoint { x: 0.0, y: 0.0 };
-                        if AXValueGetValue(child_pos_ref as AXValueRef, AX_VALUE_CG_POINT_TYPE, &mut child_point as *mut _ as *mut _) {
-                            // Track the topmost content element
-                            if child_point.y < content_top {
-                                content_top = child_point.y;
-                            }
-                        }
-                        core_foundation::base::CFRelease(child_pos_ref);
-                    }
+            // Search for content area
+            if let Some(height) = find_content_top_recursive(window_ref, win_y, 0) {
+                if height > 0 && height < 150 {
+                    return Some(height);
                 }
             }
-
-            // Titlebar height = distance from window top to content top
-            let titlebar_height = (content_top - win_y).max(0.0) as u32;
-
-            // Sanity check: titlebar should be between 0 and 100 pixels
-            if titlebar_height > 0 && titlebar_height < 100 {
-                return titlebar_height;
-            }
-            return 28; // fallback
         }
 
-        28 // fallback
+        None
     }
+}
+
+/// Recursively search for toolbar or content area to determine titlebar height
+unsafe fn find_content_top_recursive(
+    element: accessibility_sys::AXUIElementRef,
+    win_y: f64,
+    depth: u32,
+) -> Option<u32> {
+    use accessibility_sys::*;
+    use core_foundation::base::TCFType;
+    use std::ptr;
+
+    const AX_VALUE_CG_POINT_TYPE: u32 = 1;
+    const AX_VALUE_CG_SIZE_TYPE: u32 = 2;
+
+    if depth > 3 {
+        return None;
+    }
+
+    let role_attr = core_foundation::string::CFString::new("AXRole");
+    let pos_attr = core_foundation::string::CFString::new("AXPosition");
+    let size_attr = core_foundation::string::CFString::new("AXSize");
+    let children_attr = core_foundation::string::CFString::new("AXChildren");
+
+    let mut children_ref: core_foundation::base::CFTypeRef = ptr::null();
+    if AXUIElementCopyAttributeValue(element, children_attr.as_concrete_TypeRef(), &mut children_ref) != 0 {
+        return None;
+    }
+
+    let children: core_foundation::array::CFArray<core_foundation::base::CFType> =
+        core_foundation::array::CFArray::wrap_under_create_rule(children_ref as _);
+
+    let mut best_toolbar_bottom: Option<f64> = None;
+    let mut best_content_top: Option<f64> = None;
+
+    for j in 0..children.len() {
+        let Some(child) = children.get(j) else { continue };
+        let child_ref = child.as_CFTypeRef() as AXUIElementRef;
+
+        let mut role_ref: core_foundation::base::CFTypeRef = ptr::null();
+        if AXUIElementCopyAttributeValue(child_ref, role_attr.as_concrete_TypeRef(), &mut role_ref) != 0 {
+            continue;
+        }
+        let role_str: core_foundation::string::CFString =
+            core_foundation::string::CFString::wrap_under_create_rule(role_ref as _);
+        let role = role_str.to_string();
+
+        let mut pos_ref: core_foundation::base::CFTypeRef = ptr::null();
+        let mut child_point = core_graphics::geometry::CGPoint { x: 0.0, y: 0.0 };
+        if AXUIElementCopyAttributeValue(child_ref, pos_attr.as_concrete_TypeRef(), &mut pos_ref) == 0 {
+            AXValueGetValue(pos_ref as AXValueRef, AX_VALUE_CG_POINT_TYPE, &mut child_point as *mut _ as *mut _);
+            core_foundation::base::CFRelease(pos_ref);
+        }
+
+        let mut size_ref: core_foundation::base::CFTypeRef = ptr::null();
+        let mut child_size = core_graphics::geometry::CGSize { width: 0.0, height: 0.0 };
+        if AXUIElementCopyAttributeValue(child_ref, size_attr.as_concrete_TypeRef(), &mut size_ref) == 0 {
+            AXValueGetValue(size_ref as AXValueRef, AX_VALUE_CG_SIZE_TYPE, &mut child_size as *mut _ as *mut _);
+            core_foundation::base::CFRelease(size_ref);
+        }
+
+        if role == "AXToolbar" {
+            let toolbar_bottom = child_point.y + child_size.height;
+            if best_toolbar_bottom.is_none() || toolbar_bottom > best_toolbar_bottom.unwrap() {
+                best_toolbar_bottom = Some(toolbar_bottom);
+            }
+        }
+
+        if role == "AXScrollArea" || role == "AXWebArea" || role == "AXSplitGroup" {
+            if best_content_top.is_none() || child_point.y < best_content_top.unwrap() {
+                best_content_top = Some(child_point.y);
+            }
+        }
+
+        if role == "AXGroup" || role == "AXTabGroup" {
+            if let Some(h) = find_content_top_recursive(child_ref, win_y, depth + 1) {
+                return Some(h);
+            }
+        }
+    }
+
+    if let Some(tb) = best_toolbar_bottom {
+        return Some((tb - win_y).max(0.0) as u32);
+    }
+    if let Some(ct) = best_content_top {
+        let h = (ct - win_y).max(0.0) as u32;
+        if h > 0 {
+            return Some(h);
+        }
+    }
+
+    None
 }
 
 /// Get window info at cursor position including titlebar height

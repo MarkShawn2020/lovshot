@@ -1,6 +1,10 @@
-# Lovshot
+<p align="center">
+  <img src="assets/logo.png" width="128" height="128" alt="Lovshot Logo">
+</p>
 
-轻量级屏幕截图和 GIF 录制工具，专为 macOS 设计。
+<h1 align="center">Lovshot</h1>
+
+<p align="center">轻量级屏幕截图和 GIF 录制工具，专为 macOS 设计。</p>
 
 ## 功能
 

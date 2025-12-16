@@ -1073,6 +1073,40 @@ fn open_settings_window(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Open the about window
+fn open_about_window(app: AppHandle) -> Result<(), String> {
+    // macOS: Temporarily activate the app to receive keyboard focus
+    #[cfg(target_os = "macos")]
+    {
+        use objc::{msg_send, sel, sel_impl, class};
+        unsafe {
+            let ns_app: *mut objc::runtime::Object = msg_send![class!(NSApplication), sharedApplication];
+            let _: () = msg_send![ns_app, activateIgnoringOtherApps: true];
+        }
+    }
+
+    // If already open, just focus it
+    if let Some(win) = app.get_webview_window("about") {
+        let _ = win.show();
+        let _ = win.set_focus();
+        return Ok(());
+    }
+
+    let win = WebviewWindowBuilder::new(&app, "about", WebviewUrl::App("/about.html".into()))
+        .title("About Lovshot")
+        .inner_size(400.0, 360.0)
+        .resizable(false)
+        .center()
+        .focused(true)
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let _ = win.show();
+    let _ = win.set_focus();
+
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let state: SharedState = Arc::new(Mutex::new(AppState::default()));
@@ -1173,6 +1207,8 @@ pub fn run() {
             let menu_sep1 = PredefinedMenuItem::separator(app)?;
             let menu_settings = MenuItem::with_id(app, "settings", "Settings...", true, None::<&str>)?;
             let menu_sep2 = PredefinedMenuItem::separator(app)?;
+            let menu_about = MenuItem::with_id(app, "about", "About Lovshot", true, None::<&str>)?;
+            let menu_sep3 = PredefinedMenuItem::separator(app)?;
             let menu_quit = MenuItem::with_id(app, "quit", "Quit Lovshot", true, None::<&str>)?;
 
             let tray_menu = Menu::with_items(app, &[
@@ -1182,6 +1218,8 @@ pub fn run() {
                 &menu_sep1,
                 &menu_settings,
                 &menu_sep2,
+                &menu_about,
+                &menu_sep3,
                 &menu_quit,
             ])?;
 
@@ -1211,6 +1249,9 @@ pub fn run() {
                         }
                         "settings" => {
                             let _ = open_settings_window(app.clone());
+                        }
+                        "about" => {
+                            let _ = open_about_window(app.clone());
                         }
                         "quit" => {
                             app.exit(0);

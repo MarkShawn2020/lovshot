@@ -32,8 +32,9 @@ body,
   user-select: none;
 }
 
-.selector-container.hide-cursor {
-  cursor: none;
+.selector-container.hide-cursor,
+.selector-container.hide-cursor * {
+  cursor: none !important;
 }
 
 .window-highlight {

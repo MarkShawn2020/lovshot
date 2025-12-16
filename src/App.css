@@ -93,6 +93,8 @@ h1 {
   display: flex;
   justify-content: center;
   gap: 0.5rem;
+  width: 100%;
+  min-width: 0;
 }
 
 button {
@@ -179,4 +181,227 @@ kbd {
 @keyframes blink {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.3; }
+}
+
+/* GIF Editor Styles */
+.editor {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  width: 100%;
+  min-width: 0;
+}
+
+/* Filmstrip 时间线 */
+.filmstrip-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  width: 100%;
+  min-width: 0;
+}
+
+.timeline-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.65rem;
+  color: var(--muted-foreground);
+  font-family: ui-monospace, monospace;
+  padding: 0 2px;
+}
+
+.timeline-labels > span:first-child,
+.timeline-labels > span:last-child {
+  min-width: 3.5em;
+}
+
+.timeline-labels > span:first-child {
+  text-align: left;
+}
+
+.timeline-labels > span:last-child {
+  text-align: right;
+}
+
+.timeline-duration {
+  color: var(--foreground);
+  font-weight: 500;
+}
+
+.filmstrip {
+  position: relative;
+  width: 100%;
+  height: 44px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--muted);
+  border: 1px solid var(--border);
+  cursor: default;
+  user-select: none;
+}
+
+.filmstrip-frames {
+  display: flex;
+  height: 100%;
+  width: 100%;
+}
+
+.filmstrip-thumb {
+  height: 100%;
+  flex: 1;
+  min-width: 0;
+  object-fit: cover;
+  pointer-events: none;
+}
+
+.filmstrip-mask {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+
+.filmstrip-mask-left {
+  left: 0;
+}
+
+.filmstrip-mask-right {
+  right: 0;
+}
+
+.filmstrip-handle {
+  position: absolute;
+  top: 0;
+  width: 6px;
+  height: 100%;
+  background: var(--primary);
+  cursor: ew-resize;
+  transform: translateX(-50%);
+  border-radius: 2px;
+  transition: background 0.1s;
+}
+
+.filmstrip-handle:hover {
+  background: #B86A4F;
+}
+
+.filmstrip-handle::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 2px;
+  height: 16px;
+  background: rgba(255, 255, 255, 0.8);
+  border-radius: 1px;
+}
+
+.editor-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  padding: 0.75rem;
+}
+
+.control-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.control-row label {
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+  width: 65px;
+  flex-shrink: 0;
+}
+
+.control-row select,
+.control-row input[type="number"] {
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--background);
+  color: var(--foreground);
+  font-size: 0.75rem;
+  font-family: ui-monospace, monospace;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.control-row select:focus,
+.control-row input[type="number"]:focus {
+  border-color: var(--primary);
+}
+
+.control-row select {
+  flex: 1;
+  cursor: pointer;
+}
+
+.range-inputs {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  flex: 1;
+}
+
+.range-inputs input[type="number"] {
+  width: 60px;
+  text-align: center;
+}
+
+.range-inputs span {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+
+.size-estimate {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.7rem;
+  color: var(--muted-foreground);
+  font-family: ui-monospace, monospace;
+}
+
+.size-badge {
+  background: var(--muted);
+  padding: 2px 8px;
+  border-radius: 4px;
+  color: var(--foreground);
+  font-weight: 500;
+}
+
+.editor-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.editor-actions button {
+  flex: 1;
+}
+
+.btn-secondary {
+  background: var(--card);
+  color: var(--muted-foreground);
+  border: 1px solid var(--border);
+}
+
+.btn-secondary:hover {
+  background: var(--muted);
+  color: var(--foreground);
+}
+
+.saving-hint {
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
 }

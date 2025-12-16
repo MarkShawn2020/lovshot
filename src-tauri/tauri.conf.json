@@ -15,10 +15,12 @@
     "windows": [
       {
         "title": "Lovshot",
-        "width": 280,
-        "height": 200,
-        "resizable": false,
-        "center": true
+        "width": 320,
+        "height": 420,
+        "resizable": true,
+        "center": true,
+        "minWidth": 280,
+        "minHeight": 200
       }
     ],
     "security": {

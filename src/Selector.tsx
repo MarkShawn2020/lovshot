@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
 type Mode = "image" | "gif" | "video";
+type OutputScale = 1 | 0.75 | 0.5 | 0.25;
 
 interface SelectionRect {
   x: number;
@@ -17,6 +18,7 @@ export default function Selector() {
   const [mode, setMode] = useState<Mode>("image");
   const [showHint, setShowHint] = useState(true);
   const [showToolbar, setShowToolbar] = useState(false);
+  const [outputScale, setOutputScale] = useState<OutputScale>(1);
 
   const startPos = useRef({ x: 0, y: 0 });
   const selectionRef = useRef<HTMLDivElement>(null);
@@ -43,13 +45,15 @@ export default function Selector() {
       setShowToolbar(false);
       setSelectionRect(null);
       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-      await invoke("save_screenshot");
+      // Pass scale to save_screenshot
+      await invoke("save_screenshot", { scale: outputScale });
     } else if (mode === "gif") {
+      // GIF mode: just start recording, config is set in editor later
       await invoke("start_recording");
     }
 
     await closeWindow();
-  }, [selectionRect, mode, closeWindow]);
+  }, [selectionRect, mode, outputScale, closeWindow]);
 
   // Mouse events
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -179,6 +183,19 @@ export default function Selector() {
             🎥
           </button>
           <div className="toolbar-divider" />
+          {mode === "image" && (
+            <select
+              className="toolbar-select"
+              value={outputScale}
+              onChange={(e) => setOutputScale(Number(e.target.value) as OutputScale)}
+              title="Output Scale"
+            >
+              <option value={1}>1x</option>
+              <option value={0.75}>75%</option>
+              <option value={0.5}>50%</option>
+              <option value={0.25}>25%</option>
+            </select>
+          )}
           <button
             className="toolbar-btn"
             onClick={(e) => {

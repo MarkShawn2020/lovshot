@@ -34,11 +34,50 @@ pub struct SaveResult {
     pub error: Option<String>,
 }
 
+// 导出配置（用于 GIF 编辑器）
+#[derive(Clone, Serialize, Deserialize)]
+pub struct ExportConfig {
+    pub start_frame: usize,
+    pub end_frame: usize,
+    pub output_scale: f32,
+    pub target_fps: u32,
+    pub loop_mode: String, // "infinite", "once", "pingpong"
+}
+
+// 录制信息（供前端编辑器使用）
+#[derive(Clone, Serialize, Deserialize)]
+pub struct RecordingInfo {
+    pub frame_count: usize,
+    pub width: u32,
+    pub height: u32,
+    pub fps: u32,
+    pub duration_ms: u64,
+    pub has_frames: bool,
+}
+
+// 体积预估结果
+#[derive(Clone, Serialize, Deserialize)]
+pub struct SizeEstimate {
+    pub frame_count: usize,
+    pub output_width: u32,
+    pub output_height: u32,
+    pub estimated_bytes: u64,
+    pub formatted: String,
+}
+
+#[derive(Clone, Default)]
+enum GifLoopMode {
+    #[default]
+    Infinite,
+    Once,
+    PingPong,
+}
+
 struct AppState {
     recording: bool,
     region: Option<Region>,
     frames: Vec<RgbaImage>,
-    fps: u32,
+    recording_fps: u32,  // 录制时的帧率（固定30fps保证质量）
     // Screen info for DPI handling
     screen_x: i32,
     screen_y: i32,
@@ -51,7 +90,7 @@ impl Default for AppState {
             recording: false,
             region: None,
             frames: Vec::new(),
-            fps: 10,
+            recording_fps: 30,  // 固定30fps录制
             screen_x: 0,
             screen_y: 0,
             screen_scale: 1.0,
@@ -207,7 +246,7 @@ fn start_recording(app: AppHandle, state: tauri::State<SharedState>) -> Result<(
     s.recording = true;
     s.frames.clear();
 
-    let fps = s.fps;
+    let recording_fps = s.recording_fps;  // 使用固定录制帧率
     drop(s);
 
     // 显示主窗口，让用户可以看到录制状态和停止按钮
@@ -228,9 +267,9 @@ fn start_recording(app: AppHandle, state: tauri::State<SharedState>) -> Result<(
             return;
         }
         let screen = &screens[0];
-        println!("[DEBUG][recording_thread] 屏幕: {}x{}, scale={}",
-            screen.display_info.width, screen.display_info.height, screen.display_info.scale_factor);
-        let frame_duration = Duration::from_millis(1000 / fps as u64);
+        println!("[DEBUG][recording_thread] 屏幕: {}x{}, scale={}, fps={}",
+            screen.display_info.width, screen.display_info.height, screen.display_info.scale_factor, recording_fps);
+        let frame_duration = Duration::from_millis(1000 / recording_fps as u64);
 
         let mut frame_idx = 0u32;
         loop {
@@ -287,19 +326,208 @@ fn start_recording(app: AppHandle, state: tauri::State<SharedState>) -> Result<(
 }
 
 #[tauri::command]
-fn stop_recording(state: tauri::State<SharedState>) {
+fn stop_recording(app: AppHandle, state: tauri::State<SharedState>) {
     println!("[DEBUG][stop_recording] ====== 被调用 ======");
     let mut s = state.lock().unwrap();
     s.recording = false;
-    println!("[DEBUG][stop_recording] 录制已停止, 帧数: {}", s.frames.len());
+    let frame_count = s.frames.len();
+    println!("[DEBUG][stop_recording] 录制已停止, 帧数: {}", frame_count);
+    drop(s);
+
+    // 通知前端进入编辑模式
+    let _ = app.emit("recording-stopped", serde_json::json!({
+        "frame_count": frame_count
+    }));
 }
 
 #[tauri::command]
-fn save_screenshot(app: AppHandle, state: tauri::State<SharedState>) -> Result<String, String> {
+fn get_recording_info(state: tauri::State<SharedState>) -> RecordingInfo {
+    let s = state.lock().unwrap();
+    let (width, height) = if let Some(frame) = s.frames.first() {
+        frame.dimensions()
+    } else {
+        (0, 0)
+    };
+    let duration_ms = if s.recording_fps > 0 {
+        (s.frames.len() as u64 * 1000) / s.recording_fps as u64
+    } else {
+        0
+    };
+
+    RecordingInfo {
+        frame_count: s.frames.len(),
+        width,
+        height,
+        fps: s.recording_fps,
+        duration_ms,
+        has_frames: !s.frames.is_empty(),
+    }
+}
+
+#[tauri::command]
+fn estimate_export_size(state: tauri::State<SharedState>, config: ExportConfig) -> SizeEstimate {
+    let s = state.lock().unwrap();
+
+    let (orig_width, orig_height) = if let Some(frame) = s.frames.first() {
+        frame.dimensions()
+    } else {
+        return SizeEstimate {
+            frame_count: 0,
+            output_width: 0,
+            output_height: 0,
+            estimated_bytes: 0,
+            formatted: "0 B".to_string(),
+        };
+    };
+
+    // 计算裁剪后的帧数
+    let start = config.start_frame.min(s.frames.len());
+    let end = config.end_frame.min(s.frames.len());
+    let trimmed_count = if end > start { end - start } else { 0 };
+
+    // 计算降帧后的帧数（通过跳帧实现）
+    let frame_step = if config.target_fps > 0 && config.target_fps < s.recording_fps {
+        s.recording_fps / config.target_fps
+    } else {
+        1
+    };
+    let final_frame_count = (trimmed_count + frame_step as usize - 1) / frame_step as usize;
+
+    // 计算输出尺寸
+    let output_width = (orig_width as f32 * config.output_scale) as u32;
+    let output_height = (orig_height as f32 * config.output_scale) as u32;
+
+    // PingPong 模式会增加帧数
+    let total_frames = if config.loop_mode == "pingpong" && final_frame_count > 2 {
+        final_frame_count * 2 - 2
+    } else {
+        final_frame_count
+    };
+
+    // 经验估算：GIF 每像素约 0.12-0.18 字节（考虑 LZW 压缩）
+    let bytes_per_pixel = 0.15;
+    let estimated_bytes = (total_frames as f64 * output_width as f64 * output_height as f64 * bytes_per_pixel) as u64;
+
+    // 格式化文件大小
+    let formatted = format_bytes(estimated_bytes);
+
+    SizeEstimate {
+        frame_count: total_frames,
+        output_width,
+        output_height,
+        estimated_bytes,
+        formatted,
+    }
+}
+
+fn format_bytes(bytes: u64) -> String {
+    const KB: u64 = 1024;
+    const MB: u64 = KB * 1024;
+    const GB: u64 = MB * 1024;
+
+    if bytes >= GB {
+        format!("{:.1} GB", bytes as f64 / GB as f64)
+    } else if bytes >= MB {
+        format!("{:.1} MB", bytes as f64 / MB as f64)
+    } else if bytes >= KB {
+        format!("{:.1} KB", bytes as f64 / KB as f64)
+    } else {
+        format!("{} B", bytes)
+    }
+}
+
+#[tauri::command]
+fn discard_recording(state: tauri::State<SharedState>) {
+    println!("[DEBUG][discard_recording] 丢弃录制数据");
+    let mut s = state.lock().unwrap();
+    s.frames.clear();
+}
+
+#[tauri::command]
+fn get_frame_thumbnail(state: tauri::State<SharedState>, frame_index: usize, max_height: u32) -> Result<String, String> {
+    let s = state.lock().unwrap();
+
+    if frame_index >= s.frames.len() {
+        return Err("Frame index out of bounds".to_string());
+    }
+
+    let frame = &s.frames[frame_index];
+    let (orig_w, orig_h) = frame.dimensions();
+
+    // 按高度等比缩放
+    let scale = max_height as f32 / orig_h as f32;
+    let thumb_w = (orig_w as f32 * scale) as u32;
+    let thumb_h = max_height;
+
+    let thumbnail = image::imageops::resize(frame, thumb_w, thumb_h, image::imageops::FilterType::Triangle);
+
+    // 编码为 PNG base64
+    use image::ImageEncoder;
+    let mut png_data = Vec::new();
+    let encoder = image::codecs::png::PngEncoder::new(&mut png_data);
+    encoder.write_image(
+        thumbnail.as_raw(),
+        thumb_w,
+        thumb_h,
+        image::ExtendedColorType::Rgba8,
+    ).map_err(|e| e.to_string())?;
+
+    let base64_str = STANDARD.encode(&png_data);
+    Ok(format!("data:image/png;base64,{}", base64_str))
+}
+
+/// 获取 filmstrip 缩略图条（均匀采样 count 帧）
+#[tauri::command]
+fn get_filmstrip(state: tauri::State<SharedState>, count: usize, thumb_height: u32) -> Result<Vec<String>, String> {
+    let s = state.lock().unwrap();
+    let total = s.frames.len();
+
+    if total == 0 {
+        return Err("No frames available".to_string());
+    }
+
+    let count = count.min(total).max(1);
+    let step = if count > 1 { (total - 1) as f32 / (count - 1) as f32 } else { 0.0 };
+
+    let mut thumbnails = Vec::with_capacity(count);
+
+    for i in 0..count {
+        let frame_idx = if count > 1 {
+            ((i as f32 * step).round() as usize).min(total - 1)
+        } else {
+            0
+        };
+
+        let frame = &s.frames[frame_idx];
+        let (orig_w, orig_h) = frame.dimensions();
+
+        // 按高度等比缩放
+        let scale = thumb_height as f32 / orig_h as f32;
+        let thumb_w = (orig_w as f32 * scale) as u32;
+
+        let thumbnail = image::imageops::resize(frame, thumb_w, thumb_height, image::imageops::FilterType::Nearest);
+
+        // 转为 RGB 后编码为 JPEG（更小）
+        let rgb_thumbnail = image::DynamicImage::ImageRgba8(thumbnail).to_rgb8();
+        let mut jpg_data = Vec::new();
+        let mut cursor = std::io::Cursor::new(&mut jpg_data);
+        rgb_thumbnail.write_to(&mut cursor, image::ImageFormat::Jpeg).map_err(|e| e.to_string())?;
+
+        let base64_str = STANDARD.encode(&jpg_data);
+        thumbnails.push(format!("data:image/jpeg;base64,{}", base64_str));
+    }
+
+    Ok(thumbnails)
+}
+
+#[tauri::command]
+fn save_screenshot(app: AppHandle, state: tauri::State<SharedState>, scale: Option<f32>) -> Result<String, String> {
     println!("[DEBUG][save_screenshot] ====== 被调用 ======");
     let s = state.lock().unwrap();
     let region = s.region.clone().ok_or("No region selected")?;
-    println!("[DEBUG][save_screenshot] region: x={}, y={}, w={}, h={}", region.x, region.y, region.width, region.height);
+    let output_scale = scale.unwrap_or(1.0).clamp(0.1, 1.0);
+    println!("[DEBUG][save_screenshot] region: x={}, y={}, w={}, h={}, scale={}",
+        region.x, region.y, region.width, region.height, output_scale);
     drop(s);
 
     let screens = Screen::all().map_err(|e| {
@@ -314,12 +542,29 @@ fn save_screenshot(app: AppHandle, state: tauri::State<SharedState>) -> Result<S
 
     let screen = &screens[0];
     println!("[DEBUG][save_screenshot] 调用 capture_area: x={}, y={}, w={}, h={}", region.x, region.y, region.width, region.height);
-    let img = screen.capture_area(region.x, region.y, region.width, region.height)
+    let captured = screen.capture_area(region.x, region.y, region.width, region.height)
         .map_err(|e| {
             println!("[DEBUG][save_screenshot] capture_area 错误: {}", e);
             e.to_string()
         })?;
-    println!("[DEBUG][save_screenshot] capture_area 成功, 图像尺寸: {}x{}", img.width(), img.height());
+    println!("[DEBUG][save_screenshot] capture_area 成功, 图像尺寸: {}x{}", captured.width(), captured.height());
+
+    // Convert from screenshots' image type to our image type
+    let captured_rgba = RgbaImage::from_raw(
+        captured.width(),
+        captured.height(),
+        captured.into_raw(),
+    ).ok_or("Failed to convert image")?;
+
+    // Apply scaling if needed
+    let img = if (output_scale - 1.0).abs() > 0.01 {
+        let new_w = (captured_rgba.width() as f32 * output_scale) as u32;
+        let new_h = (captured_rgba.height() as f32 * output_scale) as u32;
+        println!("[DEBUG][save_screenshot] 缩放到: {}x{}", new_w, new_h);
+        image::imageops::resize(&captured_rgba, new_w, new_h, image::imageops::FilterType::Lanczos3)
+    } else {
+        captured_rgba
+    };
 
     // 复制到剪切板 (使用 RGBA raw bytes)
     let tauri_image = tauri::image::Image::new_owned(
@@ -356,34 +601,109 @@ fn save_screenshot(app: AppHandle, state: tauri::State<SharedState>) -> Result<S
 }
 
 #[tauri::command]
-fn save_gif(app: AppHandle, state: tauri::State<SharedState>) -> Result<(), String> {
-    println!("[DEBUG][save_gif] ====== 被调用 ======");
+fn export_gif(app: AppHandle, state: tauri::State<SharedState>, config: ExportConfig) -> Result<(), String> {
+    println!("[DEBUG][export_gif] ====== 被调用 ======");
+    println!("[DEBUG][export_gif] config: start={}, end={}, scale={}, fps={}, loop={}",
+        config.start_frame, config.end_frame, config.output_scale, config.target_fps, config.loop_mode);
+
     let mut s = state.lock().unwrap();
 
     if s.frames.is_empty() {
-        println!("[DEBUG][save_gif] 错误: 没有帧可保存");
-        let _ = app.emit("save-complete", SaveResult {
+        println!("[DEBUG][export_gif] 错误: 没有帧可保存");
+        let _ = app.emit("export-complete", SaveResult {
             success: false,
             path: None,
-            error: Some("No frames to save".to_string()),
+            error: Some("No frames to export".to_string()),
         });
         return Ok(());
     }
-    println!("[DEBUG][save_gif] 帧数: {}", s.frames.len());
 
-    let frames = std::mem::take(&mut s.frames);
-    let fps = s.fps;
+    let total_frames = s.frames.len();
+    let recording_fps = s.recording_fps;
+    println!("[DEBUG][export_gif] 原始帧数: {}, 录制帧率: {}", total_frames, recording_fps);
+
+    // 取出帧数据
+    let all_frames = std::mem::take(&mut s.frames);
     drop(s);
+
+    // 克隆配置用于线程
+    let config = config.clone();
 
     // 在后台线程编码，立即返回
     thread::spawn(move || {
+        // 1. 裁剪帧范围
+        let start = config.start_frame.min(total_frames);
+        let end = config.end_frame.min(total_frames);
+        if end <= start {
+            let _ = app.emit("export-complete", SaveResult {
+                success: false,
+                path: None,
+                error: Some("Invalid frame range".to_string()),
+            });
+            return;
+        }
+        let trimmed_frames: Vec<_> = all_frames[start..end].to_vec();
+        println!("[DEBUG][export_gif] 裁剪后帧数: {}", trimmed_frames.len());
+
+        // 2. 降帧（通过跳帧实现）
+        let frame_step = if config.target_fps > 0 && config.target_fps < recording_fps {
+            (recording_fps / config.target_fps) as usize
+        } else {
+            1
+        };
+        let sampled_frames: Vec<_> = trimmed_frames.into_iter()
+            .step_by(frame_step)
+            .collect();
+        println!("[DEBUG][export_gif] 降帧后: step={}, 帧数={}", frame_step, sampled_frames.len());
+
+        if sampled_frames.is_empty() {
+            let _ = app.emit("export-complete", SaveResult {
+                success: false,
+                path: None,
+                error: Some("No frames after sampling".to_string()),
+            });
+            return;
+        }
+
+        // 3. 缩放
+        let output_scale = config.output_scale.clamp(0.1, 1.0);
+        let scaled_frames: Vec<RgbaImage> = if (output_scale - 1.0).abs() > 0.01 {
+            println!("[DEBUG][export_gif] 缩放帧: scale={}", output_scale);
+            sampled_frames.into_iter().map(|f| {
+                let new_w = (f.width() as f32 * output_scale) as u32;
+                let new_h = (f.height() as f32 * output_scale) as u32;
+                image::imageops::resize(&f, new_w, new_h, image::imageops::FilterType::Triangle)
+            }).collect()
+        } else {
+            sampled_frames
+        };
+
+        // 4. 处理 PingPong 模式
+        let gif_loop_mode = match config.loop_mode.as_str() {
+            "once" => GifLoopMode::Once,
+            "pingpong" => GifLoopMode::PingPong,
+            _ => GifLoopMode::Infinite,
+        };
+
+        let final_frames: Vec<RgbaImage> = match gif_loop_mode {
+            GifLoopMode::PingPong if scaled_frames.len() > 2 => {
+                let mut result = scaled_frames.clone();
+                let reversed: Vec<_> = scaled_frames[1..scaled_frames.len()-1].iter().rev().cloned().collect();
+                result.extend(reversed);
+                println!("[DEBUG][export_gif] PingPong 模式: {} -> {} 帧", scaled_frames.len(), result.len());
+                result
+            }
+            _ => scaled_frames,
+        };
+
+        // 5. 编码 GIF
         let output_dir = dirs::picture_dir()
             .or_else(|| dirs::home_dir())
             .unwrap_or_else(|| PathBuf::from("."))
             .join("lovshot");
 
         if let Err(e) = std::fs::create_dir_all(&output_dir) {
-            let _ = app.emit("save-complete", SaveResult {
+            let _ = app.emit("export-complete", SaveResult {
                 success: false,
                 path: None,
                 error: Some(e.to_string()),
@@ -393,31 +713,32 @@ fn save_gif(app: AppHandle, state: tauri::State<SharedState>) -> Result<(), Stri
 
         let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
         let filename = output_dir.join(format!("recording_{}.gif", timestamp));
-        println!("[DEBUG][save_gif] 保存路径: {:?}", filename);
+        println!("[DEBUG][export_gif] 保存路径: {:?}", filename);
 
-        if frames.is_empty() {
-            let _ = app.emit("save-complete", SaveResult {
-                success: false,
-                path: None,
-                error: Some("No frames captured".to_string()),
-            });
-            return;
-        }
-
-        let (width, height) = frames[0].dimensions();
-        let total_frames = frames.len();
-        println!("[DEBUG][save_gif] 开始编码: {}x{}, {} 帧", width, height, total_frames);
+        let (width, height) = final_frames[0].dimensions();
+        let frame_count = final_frames.len();
+        println!("[DEBUG][export_gif] 开始编码: {}x{}, {} 帧", width, height, frame_count);
 
         let result = (|| -> Result<String, String> {
             let mut file = File::create(&filename).map_err(|e| e.to_string())?;
             let mut encoder = Encoder::new(&mut file, width as u16, height as u16, &[])
                 .map_err(|e| e.to_string())?;
 
-            encoder.set_repeat(Repeat::Infinite).map_err(|e| e.to_string())?;
+            // 设置循环模式
+            let repeat = match gif_loop_mode {
+                GifLoopMode::Once => Repeat::Finite(0),
+                _ => Repeat::Infinite,
+            };
+            encoder.set_repeat(repeat).map_err(|e| e.to_string())?;
 
-            let delay = (100 / fps) as u16;
+            // GIF delay 单位是 1/100 秒
+            let delay = if config.target_fps > 0 {
+                (100 / config.target_fps) as u16
+            } else {
+                10 // 默认 10fps
+            };
 
-            for (i, rgba_img) in frames.into_iter().enumerate() {
+            for (i, rgba_img) in final_frames.into_iter().enumerate() {
                 let mut pixels: Vec<u8> = Vec::with_capacity((width * height * 4) as usize);
                 for pixel in rgba_img.pixels() {
                     pixels.push(pixel[0]);
@@ -430,8 +751,8 @@ fn save_gif(app: AppHandle, state: tauri::State<SharedState>) -> Result<(), Stri
                 frame.delay = delay;
                 encoder.write_frame(&frame).map_err(|e| e.to_string())?;
 
-                if i == 0 || (i + 1) % 10 == 0 || i + 1 == total_frames {
-                    println!("[DEBUG][save_gif] 编码帧 {}/{}", i + 1, total_frames);
+                if i == 0 || (i + 1) % 10 == 0 || i + 1 == frame_count {
+                    println!("[DEBUG][export_gif] 编码帧 {}/{}", i + 1, frame_count);
                 }
             }
 
@@ -440,20 +761,16 @@ fn save_gif(app: AppHandle, state: tauri::State<SharedState>) -> Result<(), Stri
 
         match result {
             Ok(path) => {
-                println!("[DEBUG][save_gif] ====== 完成 ====== 路径: {}", path);
-                println!("[DEBUG][save_gif] 发送 save-complete 事件");
-                match app.emit("save-complete", SaveResult {
+                println!("[DEBUG][export_gif] ====== 完成 ====== 路径: {}", path);
+                let _ = app.emit("export-complete", SaveResult {
                     success: true,
                     path: Some(path),
                     error: None,
-                }) {
-                    Ok(_) => println!("[DEBUG][save_gif] 事件发送成功"),
-                    Err(e) => println!("[DEBUG][save_gif] 事件发送失败: {:?}", e),
-                }
+                });
             }
             Err(e) => {
-                println!("[DEBUG][save_gif] ====== 错误 ====== {}", e);
-                let _ = app.emit("save-complete", SaveResult {
+                println!("[DEBUG][export_gif] ====== 错误 ====== {}", e);
+                let _ = app.emit("export-complete", SaveResult {
                     success: false,
                     path: None,
                     error: Some(e),
@@ -463,12 +780,6 @@ fn save_gif(app: AppHandle, state: tauri::State<SharedState>) -> Result<(), Stri
     });
 
     Ok(())
-}
-
-#[tauri::command]
-fn set_fps(state: tauri::State<SharedState>, fps: u32) {
-    let mut s = state.lock().unwrap();
-    s.fps = fps.clamp(1, 30);
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -503,9 +814,13 @@ pub fn run() {
             set_region,
             start_recording,
             stop_recording,
+            get_recording_info,
+            estimate_export_size,
+            export_gif,
+            discard_recording,
+            get_frame_thumbnail,
+            get_filmstrip,
             save_screenshot,
-            save_gif,
-            set_fps,
         ])
         .setup(|app| {
             // Register global shortcut

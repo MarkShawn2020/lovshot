@@ -100,6 +100,29 @@ body,
   align-self: center;
 }
 
+.toolbar-select {
+  height: 28px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--foreground);
+  font-size: 12px;
+  font-family: ui-monospace, monospace;
+  cursor: pointer;
+  outline: none;
+  transition: all 0.15s;
+}
+
+.toolbar-select:hover {
+  border-color: var(--primary);
+}
+
+.toolbar-select:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(204, 120, 92, 0.2);
+}
+
 .hint {
   position: fixed;
   bottom: 60px;

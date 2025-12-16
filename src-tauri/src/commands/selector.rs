@@ -57,6 +57,7 @@ pub fn open_selector(app: AppHandle, state: tauri::State<SharedState>) -> Result
         .skip_taskbar(true)
         .transparent(true)
         .shadow(false)
+        .resizable(false)
         .accept_first_mouse(true)
         .build()
         .map_err(|e| e.to_string())?;
@@ -71,11 +72,17 @@ pub fn open_selector(app: AppHandle, state: tauri::State<SharedState>) -> Result
 
     #[cfg(target_os = "macos")]
     {
-        use objc::{msg_send, sel, sel_impl};
+        use objc::{msg_send, sel, sel_impl, class};
         let _ = win.with_webview(|webview| {
             unsafe {
                 let ns_window = webview.ns_window() as *mut objc::runtime::Object;
                 let _: () = msg_send![ns_window, setLevel: 1000_i64];
+                // Prevent mouse events from passing through transparent areas
+                let _: () = msg_send![ns_window, setIgnoresMouseEvents: false];
+                // Set a minimal background color to capture mouse events
+                let ns_color_class = class!(NSColor);
+                let clear_color: *mut objc::runtime::Object = msg_send![ns_color_class, colorWithWhite:0.0_f64 alpha:0.005_f64];
+                let _: () = msg_send![ns_window, setBackgroundColor: clear_color];
             }
         });
     }
@@ -177,6 +184,7 @@ pub fn open_selector_internal(app: AppHandle) -> Result<(), String> {
         .skip_taskbar(true)
         .transparent(true)
         .shadow(false)
+        .resizable(false)
         .accept_first_mouse(true)
         .build()
         .map_err(|e| e.to_string())?;

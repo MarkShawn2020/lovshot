@@ -71,6 +71,49 @@ body,
   box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.4);
   display: none;
   z-index: 10;
+  pointer-events: none;
+}
+
+/* Resize handles */
+.resize-handle {
+  position: fixed;
+  z-index: 20;
+  pointer-events: auto;
+}
+
+.resize-n,
+.resize-s {
+  height: 8px;
+  cursor: ns-resize;
+}
+
+.resize-w,
+.resize-e {
+  width: 8px;
+  cursor: ew-resize;
+}
+
+.resize-corner {
+  width: 10px;
+  height: 10px;
+  background: var(--primary);
+  border-radius: 50%;
+}
+
+.resize-nw {
+  cursor: nwse-resize;
+}
+
+.resize-ne {
+  cursor: nesw-resize;
+}
+
+.resize-sw {
+  cursor: nesw-resize;
+}
+
+.resize-se {
+  cursor: nwse-resize;
 }
 
 .size-label {

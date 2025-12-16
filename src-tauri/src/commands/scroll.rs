@@ -1,26 +1,32 @@
 use std::path::PathBuf;
 
-use base64::{Engine, engine::general_purpose::STANDARD};
-use image::{RgbaImage, GenericImage, DynamicImage};
+use base64::{engine::general_purpose::STANDARD, Engine};
+use image::codecs::jpeg::JpegEncoder;
+use image::ExtendedColorType;
+use image::{DynamicImage, GenericImage, RgbaImage};
 use screenshots::Screen;
-use tauri::{AppHandle, Manager, WebviewWindowBuilder, WebviewUrl, PhysicalPosition, PhysicalSize};
+use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
 use crate::state::SharedState;
 use crate::tray::create_recording_overlay;
-use crate::types::{ScrollCaptureProgress, Region, CropEdges};
+use crate::types::{CropEdges, Region, ScrollCaptureProgress};
 
 /// Start scroll capture mode - captures the initial frame
 #[tauri::command]
-pub fn start_scroll_capture(state: tauri::State<SharedState>) -> Result<ScrollCaptureProgress, String> {
+pub fn start_scroll_capture(
+    state: tauri::State<SharedState>,
+) -> Result<ScrollCaptureProgress, String> {
     println!("[DEBUG][start_scroll_capture] ====== 被调用 ======");
     let mut s = state.lock().unwrap();
     let region = s.region.clone().ok_or_else(|| {
         println!("[DEBUG][start_scroll_capture] 错误: No region selected");
         "No region selected".to_string()
     })?;
-    println!("[DEBUG][start_scroll_capture] region: x={}, y={}, w={}, h={}",
-        region.x, region.y, region.width, region.height);
+    println!(
+        "[DEBUG][start_scroll_capture] region: x={}, y={}, w={}, h={}",
+        region.x, region.y, region.width, region.height
+    );
 
     // Clear previous scroll capture state
     s.scroll_frames.clear();
@@ -40,21 +46,26 @@ pub fn start_scroll_capture(state: tauri::State<SharedState>) -> Result<ScrollCa
         println!("[DEBUG][start_scroll_capture] 错误: No screens found");
         return Err("No screens found".to_string());
     }
-    println!("[DEBUG][start_scroll_capture] 找到 {} 个屏幕", screens.len());
+    println!(
+        "[DEBUG][start_scroll_capture] 找到 {} 个屏幕",
+        screens.len()
+    );
 
     let screen = &screens[0];
-    let captured = screen.capture_area(region.x, region.y, region.width, region.height)
+    let captured = screen
+        .capture_area(region.x, region.y, region.width, region.height)
         .map_err(|e| {
             println!("[DEBUG][start_scroll_capture] capture_area 错误: {}", e);
             e.to_string()
         })?;
-    println!("[DEBUG][start_scroll_capture] 截图成功: {}x{}", captured.width(), captured.height());
-
-    let frame = RgbaImage::from_raw(
+    println!(
+        "[DEBUG][start_scroll_capture] 截图成功: {}x{}",
         captured.width(),
-        captured.height(),
-        captured.into_raw(),
-    ).ok_or("Failed to convert image")?;
+        captured.height()
+    );
+
+    let frame = RgbaImage::from_raw(captured.width(), captured.height(), captured.into_raw())
+        .ok_or("Failed to convert image")?;
 
     let (_width, height) = frame.dimensions();
 
@@ -66,8 +77,11 @@ pub fn start_scroll_capture(state: tauri::State<SharedState>) -> Result<ScrollCa
 
     // Generate preview
     println!("[DEBUG][start_scroll_capture] 生成预览...");
-    let preview = generate_preview_base64(&frame, 200)?;
-    println!("[DEBUG][start_scroll_capture] 完成! frame_count=1, height={}", height);
+    let preview = generate_preview_base64(&frame, 600)?;
+    println!(
+        "[DEBUG][start_scroll_capture] 完成! frame_count=1, height={}",
+        height
+    );
 
     Ok(ScrollCaptureProgress {
         frame_count: 1,
@@ -97,14 +111,12 @@ pub fn capture_scroll_frame_auto(
     }
 
     let screen = &screens[0];
-    let captured = screen.capture_area(region.x, region.y, region.width, region.height)
+    let captured = screen
+        .capture_area(region.x, region.y, region.width, region.height)
         .map_err(|e| e.to_string())?;
 
-    let new_frame = RgbaImage::from_raw(
-        captured.width(),
-        captured.height(),
-        captured.into_raw(),
-    ).ok_or("Failed to convert image")?;
+    let new_frame = RgbaImage::from_raw(captured.width(), captured.height(), captured.into_raw())
+        .ok_or("Failed to convert image")?;
 
     let mut s = state.lock().unwrap();
 
@@ -138,7 +150,7 @@ pub fn capture_scroll_frame_auto(
     let total_height = stitched.height();
 
     // Generate preview
-    let preview = generate_preview_base64(&stitched, 300)?;
+    let preview = generate_preview_base64(&stitched, 600)?;
 
     Ok(Some(ScrollCaptureProgress {
         frame_count,
@@ -157,52 +169,133 @@ fn detect_scroll_delta(prev: &RgbaImage, curr: &RgbaImage) -> i32 {
         return 0;
     }
 
-    let h = h as i32;
-    let search_range = (h / 2).min(200); // Search up to half height or 200px
+    let h_i32 = h as i32;
+    let search_range = (h_i32 / 2).min(200).max(0); // Search up to half height or 200px
+    let strip_height: u32 = 20;
+    let strip_height_i32 = strip_height as i32;
+    let min_delta: i32 = 10;
 
-    // Try to find where current frame's top matches in previous frame
-    // This tells us how much was scrolled down
+    // If the region is too small, bail out.
+    if h_i32 <= strip_height_i32 || search_range < min_delta {
+        return 0;
+    }
+
+    // Score a candidate offset using multiple strips across the overlapping area.
+    // direction_down=true: curr_y matches prev_y+offset (scroll down)
+    // direction_down=false: curr_y+offset matches prev_y (scroll up)
+    fn score_offset(prev: &RgbaImage, curr: &RgbaImage, offset: i32, direction_down: bool) -> i64 {
+        let (w, h) = prev.dimensions();
+        let strip_height: u32 = 20;
+        let h_i32 = h as i32;
+        let strip_height_i32 = strip_height as i32;
+
+        let available = h_i32 - offset - strip_height_i32;
+        if available < 0 {
+            return i64::MAX;
+        }
+
+        // Sample 3 strips: top, mid, and lower-mid within the overlapping area.
+        let y0 = 0i32;
+        let y1 = available / 2;
+        let y2 = (available * 3) / 4;
+        let ys = [y0, y1, y2];
+
+        let mut total = 0i64;
+        for y in ys {
+            let (prev_y, curr_y) = if direction_down {
+                (y + offset, y)
+            } else {
+                (y, y + offset)
+            };
+
+            if prev_y < 0 || curr_y < 0 {
+                return i64::MAX;
+            }
+
+            let score = compare_strips(prev, curr, prev_y as u32, curr_y as u32, w, strip_height);
+            if score == i64::MAX {
+                return i64::MAX;
+            }
+            total = total.saturating_add(score);
+        }
+
+        total
+    }
+
+    // First gate: if frames are already very similar without any shift, treat as no scroll.
+    let score_no_shift = score_offset(prev, curr, 0, true);
+    if score_no_shift == i64::MAX {
+        return 0;
+    }
+
+    let width_samples = ((w + 3) / 4) as i64; // compare_strips samples every 4th pixel
+    let samples_total = width_samples * (strip_height as i64) * 3;
+    let still_threshold = samples_total * 25; // avg diff per sampled pixel (RGB sum) < ~25
+    if score_no_shift <= still_threshold {
+        return 0;
+    }
+
+    // Find best down/up offsets.
     let mut best_match_down = 0;
     let mut best_score_down = i64::MAX;
-
-    // Try to find where current frame's bottom matches in previous frame
-    // This tells us how much was scrolled up
     let mut best_match_up = 0;
     let mut best_score_up = i64::MAX;
 
-    let strip_height = 20; // Compare strips of this height
-
-    for offset in (10..search_range).step_by(5) {
-        // Check scroll down: current top should match previous middle/bottom
-        let score_down = compare_strips(prev, curr, offset as u32, 0, w, strip_height);
+    for offset in (min_delta..=search_range).step_by(5) {
+        let score_down = score_offset(prev, curr, offset, true);
         if score_down < best_score_down {
             best_score_down = score_down;
             best_match_down = offset;
         }
 
-        // Check scroll up: current bottom should match previous middle/top
-        let score_up = compare_strips(prev, curr, 0, offset as u32, w, strip_height);
+        let score_up = score_offset(prev, curr, offset, false);
         if score_up < best_score_up {
             best_score_up = score_up;
             best_match_up = offset;
         }
     }
 
-    // Threshold for considering it a match (lower is better)
-    let threshold = (w as i64) * (strip_height as i64) * 50; // Allow some variation
-
-    if best_score_down < threshold && best_score_down <= best_score_up {
-        best_match_down // Scrolled down
-    } else if best_score_up < threshold {
-        -best_match_up // Scrolled up
+    // Require high confidence: shifted alignment must be meaningfully better than no shift,
+    // and direction must be unambiguous. This avoids false stitching from small animated changes.
+    let (best_delta, best_score, other_score) = if best_score_down <= best_score_up {
+        (best_match_down, best_score_down, best_score_up)
     } else {
-        0 // No clear scroll detected
+        (-best_match_up, best_score_up, best_score_down)
+    };
+
+    if best_delta.abs() < min_delta {
+        return 0;
     }
+
+    // Absolute match quality gate (avg diff per sampled pixel should be reasonably low).
+    let match_threshold = samples_total * 70;
+    if best_score == i64::MAX || best_score > match_threshold {
+        return 0;
+    }
+
+    // Relative improvement gate (best shifted match must be at least 30% better than no shift).
+    if best_score.saturating_mul(100) >= score_no_shift.saturating_mul(70) {
+        return 0;
+    }
+
+    // Direction confidence gate (avoid ambiguous matches on uniform content).
+    if other_score != i64::MAX && best_score.saturating_mul(100) >= other_score.saturating_mul(90) {
+        return 0;
+    }
+
+    best_delta
 }
 
 /// Compare horizontal strips from two images
 /// Returns sum of absolute differences (lower = more similar)
-fn compare_strips(prev: &RgbaImage, curr: &RgbaImage, prev_y: u32, curr_y: u32, width: u32, height: u32) -> i64 {
+fn compare_strips(
+    prev: &RgbaImage,
+    curr: &RgbaImage,
+    prev_y: u32,
+    curr_y: u32,
+    width: u32,
+    height: u32,
+) -> i64 {
     let mut diff: i64 = 0;
     let (_, prev_h) = prev.dimensions();
     let (_, curr_h) = curr.dimensions();
@@ -227,11 +320,13 @@ fn compare_strips(prev: &RgbaImage, curr: &RgbaImage, prev_y: u32, curr_y: u32, 
 
 /// Get current scroll preview without capturing new frame
 #[tauri::command]
-pub fn get_scroll_preview(state: tauri::State<SharedState>) -> Result<ScrollCaptureProgress, String> {
+pub fn get_scroll_preview(
+    state: tauri::State<SharedState>,
+) -> Result<ScrollCaptureProgress, String> {
     let s = state.lock().unwrap();
 
     if let Some(ref stitched) = s.scroll_stitched {
-        let preview = generate_preview_base64(stitched, 300)?;
+        let preview = generate_preview_base64(stitched, 600)?;
         Ok(ScrollCaptureProgress {
             frame_count: s.scroll_frames.len(),
             total_height: stitched.height(),
@@ -244,7 +339,11 @@ pub fn get_scroll_preview(state: tauri::State<SharedState>) -> Result<ScrollCapt
 
 /// Copy scroll capture to clipboard
 #[tauri::command]
-pub fn copy_scroll_to_clipboard(app: AppHandle, state: tauri::State<SharedState>, crop: Option<CropEdges>) -> Result<(), String> {
+pub fn copy_scroll_to_clipboard(
+    app: AppHandle,
+    state: tauri::State<SharedState>,
+    crop: Option<CropEdges>,
+) -> Result<(), String> {
     let s = state.lock().unwrap();
     let stitched = s.scroll_stitched.as_ref().ok_or("No stitched image")?;
 
@@ -255,14 +354,21 @@ pub fn copy_scroll_to_clipboard(app: AppHandle, state: tauri::State<SharedState>
         final_img.width(),
         final_img.height(),
     );
-    app.clipboard().write_image(&tauri_image).map_err(|e| e.to_string())?;
+    app.clipboard()
+        .write_image(&tauri_image)
+        .map_err(|e| e.to_string())?;
 
     Ok(())
 }
 
 /// Finish scroll capture - save the stitched image to specified path
 #[tauri::command]
-pub fn finish_scroll_capture(app: AppHandle, state: tauri::State<SharedState>, path: String, crop: Option<CropEdges>) -> Result<String, String> {
+pub fn finish_scroll_capture(
+    app: AppHandle,
+    state: tauri::State<SharedState>,
+    path: String,
+    crop: Option<CropEdges>,
+) -> Result<String, String> {
     let mut s = state.lock().unwrap();
     let stitched = s.scroll_stitched.take().ok_or("No stitched image")?;
 
@@ -341,7 +447,9 @@ fn stitch_scroll_image(
             let new_height = base_h + new_h;
             let mut result = RgbaImage::new(base_w, new_height);
             result.copy_from(base, 0, 0).map_err(|e| e.to_string())?;
-            result.copy_from(new_frame, 0, base_h).map_err(|e| e.to_string())?;
+            result
+                .copy_from(new_frame, 0, base_h)
+                .map_err(|e| e.to_string())?;
             Ok(result)
         } else {
             // Has overlap, only add new pixels
@@ -357,7 +465,9 @@ fn stitch_scroll_image(
             let cropped = DynamicImage::ImageRgba8(new_frame.clone())
                 .crop_imm(0, crop_y, new_w, pixels_to_add)
                 .to_rgba8();
-            result.copy_from(&cropped, 0, base_h).map_err(|e| e.to_string())?;
+            result
+                .copy_from(&cropped, 0, base_h)
+                .map_err(|e| e.to_string())?;
 
             Ok(result)
         }
@@ -367,8 +477,12 @@ fn stitch_scroll_image(
             // No overlap, just concatenate
             let new_height = new_h + base_h;
             let mut result = RgbaImage::new(base_w, new_height);
-            result.copy_from(new_frame, 0, 0).map_err(|e| e.to_string())?;
-            result.copy_from(base, 0, new_h).map_err(|e| e.to_string())?;
+            result
+                .copy_from(new_frame, 0, 0)
+                .map_err(|e| e.to_string())?;
+            result
+                .copy_from(base, 0, new_h)
+                .map_err(|e| e.to_string())?;
             Ok(result)
         } else {
             // Has overlap, only add new pixels at top
@@ -380,10 +494,14 @@ fn stitch_scroll_image(
             let cropped = DynamicImage::ImageRgba8(new_frame.clone())
                 .crop_imm(0, 0, new_w, pixels_to_add)
                 .to_rgba8();
-            result.copy_from(&cropped, 0, 0).map_err(|e| e.to_string())?;
+            result
+                .copy_from(&cropped, 0, 0)
+                .map_err(|e| e.to_string())?;
 
             // Copy base image below the new content
-            result.copy_from(base, 0, pixels_to_add).map_err(|e| e.to_string())?;
+            result
+                .copy_from(base, 0, pixels_to_add)
+                .map_err(|e| e.to_string())?;
 
             Ok(result)
         }
@@ -423,11 +541,16 @@ fn apply_crop(img: &RgbaImage, crop: Option<CropEdges>) -> Result<RgbaImage, Str
 fn generate_preview_base64(img: &RgbaImage, max_height: u32) -> Result<String, String> {
     let (w, h) = img.dimensions();
 
-    // Use faster Nearest filter and smaller preview for speed
+    // Downscale to max_height for UI preview (trade a bit of CPU for readability)
     let preview = if h > max_height {
         let scale = max_height as f32 / h as f32;
         let new_w = (w as f32 * scale).max(1.0) as u32;
-        image::imageops::resize(img, new_w, max_height, image::imageops::FilterType::Nearest)
+        image::imageops::resize(
+            img,
+            new_w,
+            max_height,
+            image::imageops::FilterType::Triangle,
+        )
     } else {
         img.clone()
     };
@@ -436,8 +559,14 @@ fn generate_preview_base64(img: &RgbaImage, max_height: u32) -> Result<String, S
     let rgb_preview = DynamicImage::ImageRgba8(preview).to_rgb8();
 
     let mut jpg_data = Vec::new();
-    let mut cursor = std::io::Cursor::new(&mut jpg_data);
-    rgb_preview.write_to(&mut cursor, image::ImageFormat::Jpeg)
+    let mut encoder = JpegEncoder::new_with_quality(&mut jpg_data, 90);
+    encoder
+        .encode(
+            rgb_preview.as_raw(),
+            rgb_preview.width(),
+            rgb_preview.height(),
+            ExtendedColorType::Rgb8,
+        )
         .map_err(|e| e.to_string())?;
 
     let base64_str = STANDARD.encode(&jpg_data);
@@ -447,7 +576,11 @@ fn generate_preview_base64(img: &RgbaImage, max_height: u32) -> Result<String, S
 /// Open the scroll overlay window (non-activating panel on macOS)
 /// This window won't steal focus, allowing scroll events to pass to underlying windows
 #[tauri::command]
-pub fn open_scroll_overlay(app: AppHandle, state: tauri::State<SharedState>, region: Region) -> Result<(), String> {
+pub fn open_scroll_overlay(
+    app: AppHandle,
+    state: tauri::State<SharedState>,
+    region: Region,
+) -> Result<(), String> {
     println!("[DEBUG][open_scroll_overlay] 打开滚动截图悬浮窗");
 
     // Close existing scroll-overlay if any
@@ -490,18 +623,22 @@ pub fn open_scroll_overlay(app: AppHandle, state: tauri::State<SharedState>, reg
     create_recording_overlay(&app, &region, true);
 
     // Build window WITHOUT focus - critical for scroll events to pass through
-    let win = WebviewWindowBuilder::new(&app, "scroll-overlay", WebviewUrl::App("/scroll-overlay.html".into()))
-        .title("Lovshot Scroll")
-        .inner_size(panel_width as f64, panel_height as f64)
-        .min_inner_size(280.0, 200.0)
-        .position(panel_x as f64, panel_y as f64)
-        .decorations(false)
-        .resizable(true)
-        .always_on_top(true)
-        .focused(false)  // Don't steal focus!
-        .transparent(true)
-        .build()
-        .map_err(|e| e.to_string())?;
+    let win = WebviewWindowBuilder::new(
+        &app,
+        "scroll-overlay",
+        WebviewUrl::App("/scroll-overlay.html".into()),
+    )
+    .title("Lovshot Scroll")
+    .inner_size(panel_width as f64, panel_height as f64)
+    .min_inner_size(280.0, 200.0)
+    .position(panel_x as f64, panel_y as f64)
+    .decorations(false)
+    .resizable(true)
+    .always_on_top(true)
+    .focused(false) // Don't steal focus!
+    .transparent(true)
+    .build()
+    .map_err(|e| e.to_string())?;
 
     win.show().map_err(|e| e.to_string())?;
 
@@ -514,8 +651,11 @@ pub fn open_scroll_overlay(app: AppHandle, state: tauri::State<SharedState>, reg
                 let ns_window = webview.ns_window() as *mut objc::runtime::Object;
                 // Set high window level so it stays on top
                 let _: () = msg_send![ns_window, setLevel: 1000_i64];
-                // Make it a non-activating panel - won't steal focus when clicked
-                let _: () = msg_send![ns_window, setStyleMask: 128_u64]; // NSWindowStyleMaskNonactivatingPanel
+                // Get current style mask and add NonactivatingPanel + Resizable
+                let current_mask: u64 = msg_send![ns_window, styleMask];
+                // NSWindowStyleMaskResizable = 8, NSWindowStyleMaskNonactivatingPanel = 128
+                let new_mask = current_mask | 8 | 128;
+                let _: () = msg_send![ns_window, setStyleMask: new_mask];
             }
         });
     }

@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { save } from "@tauri-apps/plugin-dialog";
+
 import "./scroll-overlay.css";
 
 interface ScrollCaptureProgress {
@@ -156,8 +157,23 @@ export default function ScrollOverlay() {
     await getCurrentWindow().destroy();
   };
 
+  const startResize = (direction: "north" | "south" | "east" | "west" | "northEast" | "northWest" | "southEast" | "southWest") => async (e: React.MouseEvent) => {
+    e.preventDefault();
+    await getCurrentWindow().startResizeDragging(direction);
+  };
+
   return (
     <div className="scroll-overlay-container">
+      {/* Window resize handles */}
+      <div className="resize-handle resize-n" onMouseDown={startResize("north")} />
+      <div className="resize-handle resize-s" onMouseDown={startResize("south")} />
+      <div className="resize-handle resize-e" onMouseDown={startResize("east")} />
+      <div className="resize-handle resize-w" onMouseDown={startResize("west")} />
+      <div className="resize-handle resize-nw" onMouseDown={startResize("northWest")} />
+      <div className="resize-handle resize-ne" onMouseDown={startResize("northEast")} />
+      <div className="resize-handle resize-sw" onMouseDown={startResize("southWest")} />
+      <div className="resize-handle resize-se" onMouseDown={startResize("southEast")} />
+
       <button className="btn-close" onClick={handleCancel} title="Close">
         <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
           <path d="M1 1L13 13M13 1L1 13" />

@@ -14,12 +14,12 @@
     "windows": [
       {
         "title": "Lovshot GIF Editor",
-        "width": 320,
-        "height": 420,
+        "width": 360,
+        "height": 620,
         "resizable": true,
         "center": true,
-        "minWidth": 280,
-        "minHeight": 200
+        "minWidth": 320,
+        "minHeight": 400
       }
     ],
     "security": {

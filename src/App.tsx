@@ -87,6 +87,11 @@ function App() {
   const filmstripRef = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState<"start" | "end" | null>(null);
 
+  // Preview state
+  const [previewFrame, setPreviewFrame] = useState<number | null>(null);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [scrubbing, setScrubbing] = useState(false);
+
   // 计算可用的分辨率预设
   const resolutionPresets = useMemo<ResolutionPreset[]>(() => {
     if (!recordingInfo) return [];
@@ -155,6 +160,7 @@ function App() {
           output_path: null,
         };
         setExportConfig(initialConfig);
+        setPreviewFrame(0);
         setMode("editing");
         updateSizeEstimate(initialConfig);
         // 加载filmstrip缩略图
@@ -221,6 +227,23 @@ function App() {
   };
 
 
+  // Fetch preview thumbnail when previewFrame changes
+  useEffect(() => {
+    if (previewFrame === null || !recordingInfo) {
+      setPreviewImage(null);
+      return;
+    }
+
+    let cancelled = false;
+    invoke<string>("get_frame_thumbnail", { frameIndex: previewFrame, maxHeight: 200 })
+      .then((img) => {
+        if (!cancelled) setPreviewImage(img);
+      })
+      .catch((e) => console.error("Failed to get preview:", e));
+
+    return () => { cancelled = true; };
+  }, [previewFrame, recordingInfo]);
+
   // Filmstrip 拖动逻辑
   const getFrameFromX = useCallback((clientX: number): number => {
     if (!filmstripRef.current || !recordingInfo) return 0;
@@ -235,7 +258,20 @@ function App() {
     setDragging(handle);
   }, []);
 
-  // 全局 mousemove/mouseup 监听（拖拽时）
+  // Click/drag on filmstrip for preview scrubbing
+  const handleFilmstripClick = useCallback((e: React.MouseEvent) => {
+    const frame = getFrameFromX(e.clientX);
+    setPreviewFrame(Math.min(frame, (recordingInfo?.frame_count ?? 1) - 1));
+  }, [getFrameFromX, recordingInfo]);
+
+  const handleFilmstripScrubStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setScrubbing(true);
+    const frame = getFrameFromX(e.clientX);
+    setPreviewFrame(Math.min(frame, (recordingInfo?.frame_count ?? 1) - 1));
+  }, [getFrameFromX, recordingInfo]);
+
+  // 全局 mousemove/mouseup 监听（handle拖拽时）
   useEffect(() => {
     if (!dragging || !recordingInfo) return;
 
@@ -259,6 +295,25 @@ function App() {
       window.removeEventListener("mouseup", handleMouseUp);
     };
   }, [dragging, recordingInfo, exportConfig.start_frame, exportConfig.end_frame, getFrameFromX]);
+
+  // 全局 mousemove/mouseup 监听（scrubbing预览时）
+  useEffect(() => {
+    if (!scrubbing || !recordingInfo) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const frame = getFrameFromX(e.clientX);
+      setPreviewFrame(Math.min(Math.max(0, frame), recordingInfo.frame_count - 1));
+    };
+
+    const handleMouseUp = () => setScrubbing(false);
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [scrubbing, recordingInfo, getFrameFromX]);
 
   const formatDuration = (ms: number) => {
     const seconds = ms / 1000;
@@ -301,16 +356,23 @@ function App() {
 
         {mode === "editing" && recordingInfo && (
           <div className="editor">
+            {/* Preview above timeline */}
+            {previewImage && (
+              <div className="preview-container">
+                <img src={previewImage} alt="Preview" className="preview-image" draggable={false} />
+                <span className="preview-frame-info">
+                  Frame {previewFrame} / {recordingInfo.frame_count - 1}
+                </span>
+              </div>
+            )}
+
             {/* Filmstrip 时间线 */}
             <div className="filmstrip-section">
-              <div className="timeline-labels">
-                <span>{formatDuration(getPlaybackDuration(exportConfig.start_frame))}</span>
-                <span className="timeline-duration">{formatDuration(trimmedDuration)}</span>
-                <span>{formatDuration(getPlaybackDuration(exportConfig.end_frame))}</span>
-              </div>
               <div
                 ref={filmstripRef}
                 className="filmstrip"
+                onClick={handleFilmstripClick}
+                onMouseDown={handleFilmstripScrubStart}
               >
                 {/* 缩略图条 */}
                 <div className="filmstrip-frames">
@@ -327,6 +389,13 @@ function App() {
                   className="filmstrip-mask filmstrip-mask-right"
                   style={{ width: `${((recordingInfo.frame_count - exportConfig.end_frame) / recordingInfo.frame_count) * 100}%` }}
                 />
+                {/* Playhead indicator */}
+                {previewFrame !== null && (
+                  <div
+                    className="filmstrip-playhead"
+                    style={{ left: `${(previewFrame / recordingInfo.frame_count) * 100}%` }}
+                  />
+                )}
                 {/* 拖动手柄 */}
                 <div
                   className="filmstrip-handle filmstrip-handle-start"
@@ -419,7 +488,11 @@ function App() {
             {sizeEstimate && (
               <div className="size-estimate">
                 <span>{sizeEstimate.output_width}×{sizeEstimate.output_height}</span>
-                <span>{sizeEstimate.frame_count} frames</span>
+                <span className="size-sep">·</span>
+                <span>{formatDuration(trimmedDuration)}</span>
+                <span className="size-sep">·</span>
+                <span>{sizeEstimate.frame_count}f</span>
+                <span className="size-sep">·</span>
                 <span className="size-badge">~{sizeEstimate.formatted}</span>
               </div>
             )}

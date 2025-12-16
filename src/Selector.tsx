@@ -29,6 +29,17 @@ export default function Selector() {
     await getCurrentWindow().close();
   }, []);
 
+  // Fetch pending mode from backend on mount
+  useEffect(() => {
+    invoke<Mode | null>("get_pending_mode").then((pendingMode) => {
+      if (pendingMode) {
+        setMode(pendingMode);
+        // Clear it after reading
+        invoke("clear_pending_mode");
+      }
+    });
+  }, []);
+
   // Track mouse position globally
   useEffect(() => {
     const handler = (e: MouseEvent) => setMousePos({ x: e.clientX, y: e.clientY });

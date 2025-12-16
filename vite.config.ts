@@ -10,13 +10,14 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig(async () => ({
   plugins: [lovinspPlugin({ bundler: "vite" }), react()],
 
-  // Multi-page build for main and selector windows
+  // Multi-page build for main, selector, overlay, and settings windows
   build: {
     rollupOptions: {
       input: {
         main: resolve(__dirname, "index.html"),
         selector: resolve(__dirname, "selector.html"),
         overlay: resolve(__dirname, "overlay.html"),
+        settings: resolve(__dirname, "settings.html"),
       },
     },
   },

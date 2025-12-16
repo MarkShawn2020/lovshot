@@ -11,10 +11,14 @@ use screenshots::Screen;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewWindowBuilder, WebviewUrl, WindowEvent};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::image::Image as TauriImage;
-use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
+use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use mouse_position::mouse_position::Mouse;
+
+mod config;
+use config::{AppConfig, ShortcutConfig};
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Region {
@@ -84,6 +88,16 @@ enum GifLoopMode {
     PingPong,
 }
 
+/// Capture mode: image (screenshot), gif, or video
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, Default, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum CaptureMode {
+    #[default]
+    Image,
+    Gif,
+    Video,
+}
+
 struct AppState {
     recording: bool,
     region: Option<Region>,
@@ -93,6 +107,8 @@ struct AppState {
     screen_x: i32,
     screen_y: i32,
     screen_scale: f32,
+    // Pending capture mode (set by hotkey before opening selector)
+    pending_mode: Option<CaptureMode>,
 }
 
 impl Default for AppState {
@@ -105,6 +121,7 @@ impl Default for AppState {
             screen_x: 0,
             screen_y: 0,
             screen_scale: 1.0,
+            pending_mode: None,
         }
     }
 }
@@ -261,6 +278,193 @@ fn set_region(state: tauri::State<SharedState>, region: Region) {
     // 浏览器的 clientX/clientY 已经是正确的逻辑像素
     println!("[DEBUG][set_region] 直接使用逻辑像素坐标（不缩放）");
     s.region = Some(region);
+}
+
+#[tauri::command]
+fn get_pending_mode(state: tauri::State<SharedState>) -> Option<CaptureMode> {
+    state.lock().unwrap().pending_mode
+}
+
+#[tauri::command]
+fn clear_pending_mode(state: tauri::State<SharedState>) {
+    state.lock().unwrap().pending_mode = None;
+}
+
+// ============ Config Commands ============
+
+#[tauri::command]
+fn get_shortcuts_config() -> AppConfig {
+    config::load_config()
+}
+
+#[tauri::command]
+fn save_shortcut(app: AppHandle, action: String, shortcut_str: String) -> Result<AppConfig, String> {
+    let shortcut = ShortcutConfig::from_shortcut_string(&shortcut_str)
+        .ok_or("Invalid shortcut format")?;
+
+    let new_config = config::update_shortcut(&action, shortcut)?;
+
+    // Re-register all shortcuts
+    register_shortcuts_from_config(&app)?;
+
+    Ok(new_config)
+}
+
+#[tauri::command]
+fn reset_shortcuts_to_default(app: AppHandle) -> Result<AppConfig, String> {
+    let config = AppConfig::default();
+    config::save_config(&config)?;
+
+    // Re-register all shortcuts
+    register_shortcuts_from_config(&app)?;
+
+    Ok(config)
+}
+
+#[tauri::command]
+fn pause_shortcuts(app: AppHandle) -> Result<(), String> {
+    app.global_shortcut()
+        .unregister_all()
+        .map_err(|e| e.to_string())?;
+    println!("[shortcuts] Paused all shortcuts for editing");
+    Ok(())
+}
+
+#[tauri::command]
+fn resume_shortcuts(app: AppHandle) -> Result<(), String> {
+    register_shortcuts_from_config(&app)?;
+    println!("[shortcuts] Resumed shortcuts");
+    Ok(())
+}
+
+/// Register shortcuts from config (called at startup and when config changes)
+fn register_shortcuts_from_config(app: &AppHandle) -> Result<(), String> {
+    let config = config::load_config();
+
+    // Unregister all first
+    if let Err(e) = app.global_shortcut().unregister_all() {
+        eprintln!("[shortcuts] Failed to unregister all: {}", e);
+    }
+
+    // Register each enabled shortcut
+    for (action, shortcut_cfg) in &config.shortcuts {
+        if !shortcut_cfg.enabled {
+            continue;
+        }
+
+        let shortcut_str = shortcut_cfg.to_shortcut_string();
+        match parse_shortcut(&shortcut_str) {
+            Ok(shortcut) => {
+                if let Err(e) = app.global_shortcut().register(shortcut) {
+                    eprintln!("[shortcuts] Failed to register {} ({}): {}", action, shortcut_str, e);
+                } else {
+                    println!("[shortcuts] Registered {} -> {}", action, shortcut_str);
+                }
+            }
+            Err(e) => {
+                eprintln!("[shortcuts] Invalid shortcut for {}: {}", action, e);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Parse shortcut string to Shortcut struct (e.g., "Alt+A" -> Shortcut)
+fn parse_shortcut(s: &str) -> Result<Shortcut, String> {
+    let parts: Vec<&str> = s.split('+').collect();
+    if parts.is_empty() {
+        return Err("Empty shortcut".to_string());
+    }
+
+    let key_str = parts.last().ok_or("No key")?;
+    let key_code = match key_str.to_uppercase().as_str() {
+        "A" => Code::KeyA,
+        "B" => Code::KeyB,
+        "C" => Code::KeyC,
+        "D" => Code::KeyD,
+        "E" => Code::KeyE,
+        "F" => Code::KeyF,
+        "G" => Code::KeyG,
+        "H" => Code::KeyH,
+        "I" => Code::KeyI,
+        "J" => Code::KeyJ,
+        "K" => Code::KeyK,
+        "L" => Code::KeyL,
+        "M" => Code::KeyM,
+        "N" => Code::KeyN,
+        "O" => Code::KeyO,
+        "P" => Code::KeyP,
+        "Q" => Code::KeyQ,
+        "R" => Code::KeyR,
+        "S" => Code::KeyS,
+        "T" => Code::KeyT,
+        "U" => Code::KeyU,
+        "V" => Code::KeyV,
+        "W" => Code::KeyW,
+        "X" => Code::KeyX,
+        "Y" => Code::KeyY,
+        "Z" => Code::KeyZ,
+        "1" => Code::Digit1,
+        "2" => Code::Digit2,
+        "3" => Code::Digit3,
+        "4" => Code::Digit4,
+        "5" => Code::Digit5,
+        "6" => Code::Digit6,
+        "7" => Code::Digit7,
+        "8" => Code::Digit8,
+        "9" => Code::Digit9,
+        "0" => Code::Digit0,
+        _ => return Err(format!("Unknown key: {}", key_str)),
+    };
+
+    let mut modifiers = Modifiers::empty();
+    for part in &parts[..parts.len() - 1] {
+        match part.to_lowercase().as_str() {
+            "alt" | "option" | "opt" => modifiers |= Modifiers::ALT,
+            "ctrl" | "control" => modifiers |= Modifiers::CONTROL,
+            "shift" => modifiers |= Modifiers::SHIFT,
+            "super" | "meta" | "cmd" | "command" => modifiers |= Modifiers::SUPER,
+            _ => return Err(format!("Unknown modifier: {}", part)),
+        }
+    }
+
+    let mods = if modifiers.is_empty() { None } else { Some(modifiers) };
+    Ok(Shortcut::new(mods, key_code))
+}
+
+/// Get action from shortcut (reverse lookup)
+fn get_action_for_shortcut(shortcut: &Shortcut) -> Option<CaptureMode> {
+    let config = config::load_config();
+
+    for (action, cfg) in &config.shortcuts {
+        if !cfg.enabled {
+            continue;
+        }
+        let shortcut_str = cfg.to_shortcut_string();
+        if let Ok(parsed) = parse_shortcut(&shortcut_str) {
+            if &parsed == shortcut {
+                return match action.as_str() {
+                    "screenshot" => Some(CaptureMode::Image),
+                    "gif" => Some(CaptureMode::Gif),
+                    "video" => Some(CaptureMode::Video),
+                    _ => None,
+                };
+            }
+        }
+    }
+    None
+}
+
+/// Format shortcut for display (e.g., "Alt+A" -> "⌥A")
+fn format_shortcut_display(s: &str) -> String {
+    s.replace("Alt+", "⌥")
+     .replace("Ctrl+", "⌃")
+     .replace("Shift+", "⇧")
+     .replace("Cmd+", "⌘")
+     .replace("Command+", "⌘")
+     .replace("Super+", "⌘")
+     .replace("Meta+", "⌘")
 }
 
 #[tauri::command]
@@ -834,6 +1038,41 @@ fn export_gif(app: AppHandle, state: tauri::State<SharedState>, config: ExportCo
     Ok(())
 }
 
+/// Open the settings window
+fn open_settings_window(app: AppHandle) -> Result<(), String> {
+    // macOS: Temporarily activate the app to receive keyboard focus
+    #[cfg(target_os = "macos")]
+    {
+        use objc::{msg_send, sel, sel_impl, class};
+        unsafe {
+            let ns_app: *mut objc::runtime::Object = msg_send![class!(NSApplication), sharedApplication];
+            // Activate the app and bring it to front
+            let _: () = msg_send![ns_app, activateIgnoringOtherApps: true];
+        }
+    }
+
+    // If already open, just focus it
+    if let Some(win) = app.get_webview_window("settings") {
+        let _ = win.show();
+        let _ = win.set_focus();
+        return Ok(());
+    }
+
+    let win = WebviewWindowBuilder::new(&app, "settings", WebviewUrl::App("/settings.html".into()))
+        .title("Lovshot Settings")
+        .inner_size(480.0, 400.0)
+        .resizable(false)
+        .center()
+        .focused(true)
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let _ = win.show();
+    let _ = win.set_focus();
+
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let state: SharedState = Arc::new(Mutex::new(AppState::default()));
@@ -845,18 +1084,24 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
-                .with_handler(move |app, _shortcut, event| {
-                    if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
-                        println!("[DEBUG][shortcut] Option+A pressed");
-                        let is_recording = state_for_shortcut.lock().unwrap().recording;
-                        if is_recording {
-                            // 正在录制时，按快捷键停止
-                            println!("[DEBUG][shortcut] 停止录制");
-                            state_for_shortcut.lock().unwrap().recording = false;
-                        } else {
-                            // 未录制时，打开选择器
-                            let _ = open_selector_internal(app.clone());
-                        }
+                .with_handler(move |app, shortcut, event| {
+                    if event.state() != ShortcutState::Pressed {
+                        return;
+                    }
+
+                    let is_recording = state_for_shortcut.lock().unwrap().recording;
+                    if is_recording {
+                        // Any shortcut stops recording while recording
+                        println!("[DEBUG][shortcut] 停止录制");
+                        state_for_shortcut.lock().unwrap().recording = false;
+                        return;
+                    }
+
+                    // Dynamically look up action from config
+                    if let Some(mode) = get_action_for_shortcut(shortcut) {
+                        println!("[DEBUG][shortcut] {:?} triggered -> {:?}", shortcut, mode);
+                        state_for_shortcut.lock().unwrap().pending_mode = Some(mode);
+                        let _ = open_selector_internal(app.clone());
                     }
                 })
                 .build(),
@@ -870,6 +1115,13 @@ pub fn run() {
             capture_screenshot,
             open_selector,
             set_region,
+            get_pending_mode,
+            clear_pending_mode,
+            get_shortcuts_config,
+            save_shortcut,
+            reset_shortcuts_to_default,
+            pause_shortcuts,
+            resume_shortcuts,
             start_recording,
             stop_recording,
             get_recording_info,
@@ -902,14 +1154,70 @@ pub fn run() {
                 }
             }
 
+            // Load config for tray menu labels
+            let cfg = config::load_config();
+            let screenshot_shortcut = cfg.shortcuts.get("screenshot")
+                .map(|s| s.to_shortcut_string())
+                .unwrap_or_else(|| "Alt+A".to_string());
+            let gif_shortcut = cfg.shortcuts.get("gif")
+                .map(|s| s.to_shortcut_string())
+                .unwrap_or_else(|| "Alt+G".to_string());
+            let video_shortcut = cfg.shortcuts.get("video")
+                .map(|s| s.to_shortcut_string())
+                .unwrap_or_else(|| "Alt+V".to_string());
+
+            // Build tray menu with dynamic shortcut labels
+            let menu_screenshot = MenuItem::with_id(app, "screenshot", format!("Screenshot        {}", format_shortcut_display(&screenshot_shortcut)), true, None::<&str>)?;
+            let menu_gif = MenuItem::with_id(app, "gif", format!("Record GIF        {}", format_shortcut_display(&gif_shortcut)), true, None::<&str>)?;
+            let menu_video = MenuItem::with_id(app, "video", format!("Record Video     {}", format_shortcut_display(&video_shortcut)), false, None::<&str>)?;
+            let menu_sep1 = PredefinedMenuItem::separator(app)?;
+            let menu_settings = MenuItem::with_id(app, "settings", "Settings...", true, None::<&str>)?;
+            let menu_sep2 = PredefinedMenuItem::separator(app)?;
+            let menu_quit = MenuItem::with_id(app, "quit", "Quit Lovshot", true, None::<&str>)?;
+
+            let tray_menu = Menu::with_items(app, &[
+                &menu_screenshot,
+                &menu_gif,
+                &menu_video,
+                &menu_sep1,
+                &menu_settings,
+                &menu_sep2,
+                &menu_quit,
+            ])?;
+
             // 创建系统托盘
             let tray_icon = load_tray_icon(false)
                 .unwrap_or_else(|| app.default_window_icon().unwrap().clone());
 
             let state_clone = state_for_tray.clone();
+            let state_for_menu = state_for_tray.clone();
             let _tray = TrayIconBuilder::with_id("main")
                 .icon(tray_icon)
-                .tooltip("Lovshot - Option+A to capture")
+                .tooltip("Lovshot")
+                .menu(&tray_menu)
+                .on_menu_event(move |app, event| {
+                    match event.id.as_ref() {
+                        "screenshot" => {
+                            state_for_menu.lock().unwrap().pending_mode = Some(CaptureMode::Image);
+                            let _ = open_selector_internal(app.clone());
+                        }
+                        "gif" => {
+                            state_for_menu.lock().unwrap().pending_mode = Some(CaptureMode::Gif);
+                            let _ = open_selector_internal(app.clone());
+                        }
+                        "video" => {
+                            state_for_menu.lock().unwrap().pending_mode = Some(CaptureMode::Video);
+                            let _ = open_selector_internal(app.clone());
+                        }
+                        "settings" => {
+                            let _ = open_settings_window(app.clone());
+                        }
+                        "quit" => {
+                            app.exit(0);
+                        }
+                        _ => {}
+                    }
+                })
                 .on_tray_icon_event(move |tray, event| {
                     if let TrayIconEvent::Click {
                         button: MouseButton::Left,
@@ -924,17 +1232,17 @@ pub fn run() {
                             println!("[DEBUG][tray] 点击托盘停止录制");
                             state_clone.lock().unwrap().recording = false;
                         } else {
-                            // 点击托盘打开选择器
+                            // 点击托盘打开选择器 (default to image mode)
+                            state_clone.lock().unwrap().pending_mode = Some(CaptureMode::Image);
                             let _ = open_selector_internal(app.clone());
                         }
                     }
                 })
                 .build(app)?;
 
-            // 注册全局快捷键 Option+A
-            let shortcut = Shortcut::new(Some(Modifiers::ALT), Code::KeyA);
-            app.global_shortcut().register(shortcut)?;
-            println!("[DEBUG] Global shortcut Option+A registered");
+            // Register global shortcuts from config
+            let app_handle = app.handle().clone();
+            register_shortcuts_from_config(&app_handle)?;
 
             // 隐藏主窗口（仅在编辑时显示）
             if let Some(main_win) = app.get_webview_window("main") {

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.png" width="128" height="128" alt="Lovshot Logo">
+  <img src="assets/logo.svg" width="128" height="128" alt="Lovshot Logo">
 </p>
 
 <h1 align="center">Lovshot</h1>

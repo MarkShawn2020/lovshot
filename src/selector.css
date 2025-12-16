@@ -181,3 +181,116 @@ kbd {
   font-size: 11px;
   color: var(--foreground);
 }
+
+/* Scroll capture styles */
+.selection.scroll-active {
+  border-color: #4CAF50;
+  border-width: 3px;
+  animation: scroll-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes scroll-pulse {
+  0%, 100% {
+    border-color: #4CAF50;
+  }
+  50% {
+    border-color: #81C784;
+  }
+}
+
+.scroll-preview-panel {
+  position: fixed;
+  width: 200px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  z-index: 200;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.scroll-preview-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  background: var(--muted);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--foreground);
+}
+
+.scroll-stats {
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  color: var(--muted-foreground);
+}
+
+.scroll-preview-image {
+  flex: 1;
+  padding: 8px;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  overflow-y: auto;
+  background: var(--muted);
+  max-height: 320px;
+}
+
+.scroll-preview-image img {
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.scroll-preview-actions {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+}
+
+.scroll-btn {
+  flex: 1;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.scroll-btn-primary {
+  background: #4CAF50;
+  color: white;
+}
+
+.scroll-btn-primary:hover {
+  background: #43A047;
+}
+
+.scroll-btn-secondary {
+  background: var(--muted);
+  color: var(--muted-foreground);
+}
+
+.scroll-btn-secondary:hover {
+  background: var(--border);
+  color: var(--foreground);
+}
+
+.scroll-hint {
+  padding: 8px 12px;
+  font-size: 11px;
+  color: var(--muted-foreground);
+  text-align: center;
+  border-top: 1px solid var(--border);
+  background: var(--muted);
+}

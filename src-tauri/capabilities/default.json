@@ -14,6 +14,7 @@
     "core:window:allow-show",
     "core:window:allow-hide",
     "core:window:allow-minimize",
+    "core:window:allow-set-ignore-cursor-events",
     "core:webview:allow-webview-close",
     "core:tray:default",
     "core:tray:allow-set-icon",

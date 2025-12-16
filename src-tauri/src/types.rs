@@ -64,7 +64,7 @@ pub enum GifLoopMode {
     PingPong,
 }
 
-/// Capture mode: image (screenshot), gif, or video
+/// Capture mode: image (screenshot), gif, video, or scroll (scrolling screenshot)
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, Default, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum CaptureMode {
@@ -72,4 +72,13 @@ pub enum CaptureMode {
     Image,
     Gif,
     Video,
+    Scroll,
+}
+
+/// Progress info for scroll capture preview
+#[derive(Clone, Serialize, Deserialize)]
+pub struct ScrollCaptureProgress {
+    pub frame_count: usize,
+    pub total_height: u32,
+    pub preview_base64: String,
 }

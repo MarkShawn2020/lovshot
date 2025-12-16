@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use tauri::{Manager, WindowEvent};
+use tauri::{Emitter, Manager, WindowEvent};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri_plugin_global_shortcut::ShortcutState;
@@ -46,6 +46,14 @@ pub fn run() {
                         return;
                     }
 
+                    // Check if scroll capturing - if so, emit finish event
+                    let is_scroll_capturing = state_for_shortcut.lock().unwrap().scroll_capturing;
+                    if is_scroll_capturing {
+                        println!("[DEBUG][shortcut] 完成滚动截图");
+                        let _ = app.emit("scroll-capture-finish", ());
+                        return;
+                    }
+
                     if let Some(mode) = get_action_for_shortcut(shortcut) {
                         println!("[DEBUG][shortcut] {:?} triggered -> {:?}", shortcut, mode);
                         state_for_shortcut.lock().unwrap().pending_mode = Some(mode);
@@ -81,6 +89,12 @@ pub fn run() {
             commands::get_frame_thumbnail,
             commands::get_filmstrip,
             commands::save_screenshot,
+            // Scroll capture commands
+            commands::start_scroll_capture,
+            commands::capture_scroll_frame_auto,
+            commands::get_scroll_preview,
+            commands::finish_scroll_capture,
+            commands::cancel_scroll_capture,
         ])
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
@@ -111,9 +125,13 @@ pub fn run() {
             let video_shortcut = cfg.shortcuts.get("video")
                 .map(|s| s.to_shortcut_string())
                 .unwrap_or_else(|| "Alt+V".to_string());
+            let scroll_shortcut = cfg.shortcuts.get("scroll")
+                .map(|s| s.to_shortcut_string())
+                .unwrap_or_else(|| "Alt+S".to_string());
 
             let menu_screenshot = MenuItem::with_id(app, "screenshot", format!("Screenshot        {}", format_shortcut_display(&screenshot_shortcut)), true, None::<&str>)?;
             let menu_gif = MenuItem::with_id(app, "gif", format!("Record GIF        {}", format_shortcut_display(&gif_shortcut)), true, None::<&str>)?;
+            let menu_scroll = MenuItem::with_id(app, "scroll", format!("Scroll Capture    {}", format_shortcut_display(&scroll_shortcut)), true, None::<&str>)?;
             let menu_video = MenuItem::with_id(app, "video", format!("Record Video     {}", format_shortcut_display(&video_shortcut)), false, None::<&str>)?;
             let menu_sep1 = PredefinedMenuItem::separator(app)?;
             let menu_settings = MenuItem::with_id(app, "settings", "Settings...", true, None::<&str>)?;
@@ -125,6 +143,7 @@ pub fn run() {
             let tray_menu = Menu::with_items(app, &[
                 &menu_screenshot,
                 &menu_gif,
+                &menu_scroll,
                 &menu_video,
                 &menu_sep1,
                 &menu_settings,
@@ -151,6 +170,10 @@ pub fn run() {
                         }
                         "gif" => {
                             state_for_menu.lock().unwrap().pending_mode = Some(CaptureMode::Gif);
+                            let _ = open_selector_internal(app.clone());
+                        }
+                        "scroll" => {
+                            state_for_menu.lock().unwrap().pending_mode = Some(CaptureMode::Scroll);
                             let _ = open_selector_internal(app.clone());
                         }
                         "video" => {

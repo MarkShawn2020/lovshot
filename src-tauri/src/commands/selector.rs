@@ -93,7 +93,9 @@ pub fn set_region(state: tauri::State<SharedState>, region: Region) {
 
 #[tauri::command]
 pub fn get_pending_mode(state: tauri::State<SharedState>) -> Option<CaptureMode> {
-    state.lock().unwrap().pending_mode
+    let mode = state.lock().unwrap().pending_mode;
+    println!("[DEBUG][get_pending_mode] 返回: {:?}", mode);
+    mode
 }
 
 #[tauri::command]

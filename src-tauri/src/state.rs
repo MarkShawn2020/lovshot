@@ -12,6 +12,11 @@ pub struct AppState {
     pub screen_scale: f32,
     pub pending_mode: Option<CaptureMode>,
     pub screen_snapshot: Option<String>,
+    // Scroll capture state
+    pub scroll_capturing: bool,
+    pub scroll_frames: Vec<RgbaImage>,
+    pub scroll_offsets: Vec<i32>,  // cumulative scroll offset for each frame
+    pub scroll_stitched: Option<RgbaImage>,  // the stitched result
 }
 
 impl Default for AppState {
@@ -26,6 +31,10 @@ impl Default for AppState {
             screen_scale: 1.0,
             pending_mode: None,
             screen_snapshot: None,
+            scroll_capturing: false,
+            scroll_frames: Vec::new(),
+            scroll_offsets: Vec::new(),
+            scroll_stitched: None,
         }
     }
 }

@@ -83,6 +83,7 @@ pub fn get_action_for_shortcut(shortcut: &Shortcut) -> Option<CaptureMode> {
                     "screenshot" => Some(CaptureMode::Image),
                     "gif" => Some(CaptureMode::Gif),
                     "video" => Some(CaptureMode::Video),
+                    "scroll" => Some(CaptureMode::Scroll),
                     _ => None,
                 };
             }

@@ -78,6 +78,15 @@ impl Default for AppConfig {
             },
         );
 
+        shortcuts.insert(
+            "scroll".to_string(),
+            ShortcutConfig {
+                modifiers: vec!["Alt".to_string()],
+                key: "S".to_string(),
+                enabled: true,
+            },
+        );
+
         Self {
             version: "1.0.0".to_string(),
             shortcuts,
@@ -95,13 +104,29 @@ pub fn get_config_path() -> PathBuf {
 }
 
 /// Load configuration from file, or return default if not exists
+/// Also ensures any missing shortcuts from default config are added
 pub fn load_config() -> AppConfig {
     let path = get_config_path();
+    let default_config = AppConfig::default();
 
     if path.exists() {
         match fs::read_to_string(&path) {
-            Ok(content) => match serde_json::from_str(&content) {
-                Ok(config) => return config,
+            Ok(content) => match serde_json::from_str::<AppConfig>(&content) {
+                Ok(mut config) => {
+                    // Add any missing shortcuts from default config
+                    let mut updated = false;
+                    for (key, value) in &default_config.shortcuts {
+                        if !config.shortcuts.contains_key(key) {
+                            println!("[config] Adding missing shortcut: {}", key);
+                            config.shortcuts.insert(key.clone(), value.clone());
+                            updated = true;
+                        }
+                    }
+                    if updated {
+                        let _ = save_config(&config);
+                    }
+                    return config;
+                }
                 Err(e) => {
                     eprintln!("[config] Failed to parse config: {}", e);
                 }
@@ -113,9 +138,8 @@ pub fn load_config() -> AppConfig {
     }
 
     // Return default and save it
-    let config = AppConfig::default();
-    let _ = save_config(&config);
-    config
+    let _ = save_config(&default_config);
+    default_config
 }
 
 /// Save configuration to file

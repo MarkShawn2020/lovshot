@@ -56,7 +56,8 @@ function App() {
   return (
     <main className="container">
       <div className="header">
-        <h1>lovshot</h1>
+        <h1>Lovshot</h1>
+        <span className="subtitle">Unified Screen Shotter</span>
       </div>
 
       <div className="controls">
@@ -69,7 +70,7 @@ function App() {
           <p className="saving-hint">Saving GIF...</p>
         ) : (
           <p className="shortcut-hint">
-            <kbd>⇧</kbd> + <kbd>⌥</kbd> + <kbd>A</kbd>
+            按 <kbd>⇧</kbd> + <kbd>⌥</kbd> + <kbd>A</kbd> 开始录制
           </p>
         )}
       </div>

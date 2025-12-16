@@ -14,7 +14,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "lovshot",
+        "title": "Lovshot",
         "width": 280,
         "height": 200,
         "resizable": false,

@@ -2691,7 +2691,7 @@ dependencies = [
 
 [[package]]
 name = "lovshot"
-version = "0.1.0"
+version = "0.7.2"
 dependencies = [
  "base64 0.22.1",
  "chrono",

@@ -101,24 +101,29 @@ export default function Selector() {
       await invoke("start_recording");
       await closeWindow();
     } else if (mode === "scroll") {
-      // Scroll mode: close selector first, then open scroll overlay
+      // Scroll mode: hide selector, then open overlays and start capturing
       console.log("[Selector] 进入 scroll 模式");
       const win = getCurrentWindow();
 
       try {
-        // Close selector window first to avoid intercepting events
-        await win.destroy();
+        // Hide selector so it doesn't intercept scroll events (keep JS context alive)
+        await win.hide();
+        await new Promise((r) => setTimeout(r, 50));
 
-        // Small delay to ensure window is fully closed
-        await new Promise((r) => setTimeout(r, 100));
+        // Start capturing first so the preview has data immediately
+        await invoke("start_scroll_capture");
 
-        // Open the scroll overlay
+        // Open scroll UI (selection overlay + preview panel)
         await invoke("open_scroll_overlay", { region });
 
-        // Start capturing
-        await invoke("start_scroll_capture");
+        await win.close();
       } catch (e) {
         console.error("[Selector] Failed to start scroll capture:", e);
+        try {
+          await win.show();
+        } catch {
+          // ignore
+        }
       }
     }
   }, [selectionRect, mode, closeWindow]);

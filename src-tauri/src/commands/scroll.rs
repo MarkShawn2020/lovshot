@@ -7,6 +7,7 @@ use tauri::{AppHandle, Manager, WebviewWindowBuilder, WebviewUrl, PhysicalPositi
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
 use crate::state::SharedState;
+use crate::tray::create_recording_overlay;
 use crate::types::{ScrollCaptureProgress, Region, CropEdges};
 
 /// Start scroll capture mode - captures the initial frame
@@ -113,16 +114,8 @@ pub fn capture_scroll_frame_auto(
     // Detect scroll direction and amount by comparing frames
     let scroll_delta = detect_scroll_delta(last_frame, &new_frame);
 
-    // If no significant scroll detected, return current progress without changes
+    // If no significant scroll detected, don't refresh preview (keeps UI stable)
     if scroll_delta.abs() < 10 {
-        if let Some(ref stitched) = s.scroll_stitched {
-            let preview = generate_preview_base64(stitched, 300)?;
-            return Ok(Some(ScrollCaptureProgress {
-                frame_count: s.scroll_frames.len(),
-                total_height: stitched.height(),
-                preview_base64: preview,
-            }));
-        }
         return Ok(None);
     }
 
@@ -269,13 +262,8 @@ pub fn copy_scroll_to_clipboard(app: AppHandle, state: tauri::State<SharedState>
 
 /// Finish scroll capture - save the stitched image to specified path
 #[tauri::command]
-pub fn finish_scroll_capture(state: tauri::State<SharedState>, path: String, crop: Option<CropEdges>) -> Result<String, String> {
+pub fn finish_scroll_capture(app: AppHandle, state: tauri::State<SharedState>, path: String, crop: Option<CropEdges>) -> Result<String, String> {
     let mut s = state.lock().unwrap();
-
-    if !s.scroll_capturing {
-        return Err("Not in scroll capture mode".to_string());
-    }
-
     let stitched = s.scroll_stitched.take().ok_or("No stitched image")?;
 
     // Clear scroll state
@@ -289,25 +277,40 @@ pub fn finish_scroll_capture(state: tauri::State<SharedState>, path: String, cro
     let final_img = apply_crop(&stitched, crop)?;
     final_img.save(&path).map_err(|e| e.to_string())?;
 
+    // Close region overlay after finishing
+    if let Some(overlay) = app.get_webview_window("recording-overlay") {
+        let _ = overlay.close();
+    }
+
     Ok(path)
 }
 
 /// Stop scroll capture (keep data for preview)
 #[tauri::command]
-pub fn stop_scroll_capture(state: tauri::State<SharedState>) {
+pub fn stop_scroll_capture(app: AppHandle, state: tauri::State<SharedState>) {
     println!("[DEBUG][shortcut] 停止滚动截图");
     let mut s = state.lock().unwrap();
     s.scroll_capturing = false;
+
+    // Close region overlay if present (matches shortcut-stop behavior)
+    if let Some(overlay) = app.get_webview_window("recording-overlay") {
+        let _ = overlay.close();
+    }
 }
 
 /// Cancel scroll capture
 #[tauri::command]
-pub fn cancel_scroll_capture(state: tauri::State<SharedState>) {
+pub fn cancel_scroll_capture(app: AppHandle, state: tauri::State<SharedState>) {
     let mut s = state.lock().unwrap();
     s.scroll_capturing = false;
     s.scroll_frames.clear();
     s.scroll_offsets.clear();
     s.scroll_stitched = None;
+
+    // Ensure region overlay is closed when canceling
+    if let Some(overlay) = app.get_webview_window("recording-overlay") {
+        let _ = overlay.close();
+    }
 }
 
 /// Stitch two images based on scroll delta
@@ -461,8 +464,8 @@ pub fn open_scroll_overlay(app: AppHandle, state: tauri::State<SharedState>, reg
     let screen = &screens[0];
 
     // Position the overlay to the right of the selection region
-    let panel_width = 220.0;
-    let panel_height = 400.0;
+    let panel_width = 320.0;
+    let panel_height = 420.0;
     let margin = 12.0;
 
     // Calculate position: prefer right side, fallback to left
@@ -482,6 +485,9 @@ pub fn open_scroll_overlay(app: AppHandle, state: tauri::State<SharedState>, reg
         let mut s = state.lock().unwrap();
         s.region = Some(region.clone());
     }
+
+    // Show region indicator overlay (reuse recording overlay window in static mode)
+    create_recording_overlay(&app, &region, true);
 
     // Build window WITHOUT focus - critical for scroll events to pass through
     let win = WebviewWindowBuilder::new(&app, "scroll-overlay", WebviewUrl::App("/scroll-overlay.html".into()))

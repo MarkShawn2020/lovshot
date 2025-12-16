@@ -27,7 +27,7 @@ pub fn start_recording(app: AppHandle, state: tauri::State<SharedState>) -> Resu
     drop(s);
 
     update_tray_icon(&app, true);
-    create_recording_overlay(&app, &region);
+    create_recording_overlay(&app, &region, false);
 
     let state_clone = state.inner().clone();
     let app_clone = app.clone();

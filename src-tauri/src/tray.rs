@@ -34,7 +34,7 @@ pub fn update_tray_icon(app: &AppHandle, is_recording: bool) {
 }
 
 /// Create recording border overlay window
-pub fn create_recording_overlay(app: &AppHandle, region: &Region) {
+pub fn create_recording_overlay(app: &AppHandle, region: &Region, static_mode: bool) {
     if app.get_webview_window("recording-overlay").is_some() {
         return;
     }
@@ -51,10 +51,13 @@ pub fn create_recording_overlay(app: &AppHandle, region: &Region) {
     let width = screen.display_info.width;
     let height = screen.display_info.height;
 
-    let url = format!(
+    let mut url = format!(
         "/overlay.html?x={}&y={}&w={}&h={}",
         region.x, region.y, region.width, region.height
     );
+    if static_mode {
+        url.push_str("&static=1");
+    }
 
     let win = WebviewWindowBuilder::new(app, "recording-overlay", WebviewUrl::App(url.into()))
         .title("Recording Overlay")
@@ -63,6 +66,7 @@ pub fn create_recording_overlay(app: &AppHandle, region: &Region) {
         .skip_taskbar(true)
         .transparent(true)
         .shadow(false)
+        .focused(false)
         .build();
 
     if let Ok(win) = win {

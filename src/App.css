@@ -428,3 +428,42 @@ kbd {
   border-radius: 3px;
   transition: width 0.1s ease-out;
 }
+
+/* Speed slider */
+.speed-slider {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+}
+
+.speed-slider input[type="range"] {
+  flex: 1;
+  height: 4px;
+  -webkit-appearance: none;
+  background: var(--border);
+  border-radius: 2px;
+  outline: none;
+}
+
+.speed-slider input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  background: var(--primary);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+
+.speed-slider input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+
+.speed-value {
+  font-size: 0.7rem;
+  font-family: ui-monospace, monospace;
+  color: var(--foreground);
+  min-width: 3.5em;
+  text-align: right;
+}

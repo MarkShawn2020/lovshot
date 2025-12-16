@@ -45,12 +45,13 @@ export default function RecordingOverlay() {
 
   const cornerLen = 20;
   const borderWidth = 3;
+  const cornerClass = isStatic ? "corner static" : "corner";
 
   return (
     <div className="recording-overlay">
       {/* Top-left corner - outside */}
       <div
-        className="corner"
+        className={cornerClass}
         style={{
           left: region.x - borderWidth,
           top: region.y - borderWidth,
@@ -61,7 +62,7 @@ export default function RecordingOverlay() {
       />
       {/* Top-right corner - outside */}
       <div
-        className="corner"
+        className={cornerClass}
         style={{
           left: region.x + region.width - cornerLen + borderWidth,
           top: region.y - borderWidth,
@@ -72,7 +73,7 @@ export default function RecordingOverlay() {
       />
       {/* Bottom-left corner - outside */}
       <div
-        className="corner"
+        className={cornerClass}
         style={{
           left: region.x - borderWidth,
           top: region.y + region.height - cornerLen + borderWidth,
@@ -83,7 +84,7 @@ export default function RecordingOverlay() {
       />
       {/* Bottom-right corner - outside */}
       <div
-        className="corner"
+        className={cornerClass}
         style={{
           left: region.x + region.width - cornerLen + borderWidth,
           top: region.y + region.height - cornerLen + borderWidth,

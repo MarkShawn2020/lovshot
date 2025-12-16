@@ -32,12 +32,13 @@ pub fn estimate_export_size(state: tauri::State<SharedState>, config: ExportConf
     let end = config.end_frame.min(s.frames.len());
     let trimmed_count = if end > start { end - start } else { 0 };
 
-    let frame_step = if config.target_fps > 0 && config.target_fps < s.recording_fps {
-        s.recording_fps / config.target_fps
-    } else {
-        1
-    };
-    let final_frame_count = (trimmed_count + frame_step as usize - 1) / frame_step as usize;
+    // Output duration = original duration / speed
+    // Output frames = output duration × target_fps
+    // = (trimmed_count / recording_fps / speed) × target_fps
+    let speed = config.speed.clamp(0.1, 10.0) as f64;
+    let original_duration = trimmed_count as f64 / s.recording_fps as f64;
+    let output_duration = original_duration / speed;
+    let final_frame_count = (output_duration * config.target_fps as f64).round() as usize;
 
     let output_width = (orig_width as f32 * config.output_scale) as u32;
     let output_height = (orig_height as f32 * config.output_scale) as u32;
@@ -48,7 +49,10 @@ pub fn estimate_export_size(state: tauri::State<SharedState>, config: ExportConf
         final_frame_count
     };
 
-    let bytes_per_pixel = 0.15;
+    // Adjust bytes_per_pixel based on quality (1-100)
+    // Low quality (1) -> ~0.05, High quality (100) -> ~0.4 (8x difference)
+    let quality_factor = config.quality.clamp(1, 100) as f64 / 100.0;
+    let bytes_per_pixel = 0.05 + quality_factor * 0.35;
     let estimated_bytes = (total_frames as f64 * output_width as f64 * output_height as f64 * bytes_per_pixel) as u64;
     let formatted = format_bytes(estimated_bytes);
 
@@ -264,17 +268,30 @@ pub fn export_gif(app: AppHandle, state: tauri::State<SharedState>, config: Expo
             return;
         }
         let trimmed_frames: Vec<_> = all_frames[start..end].to_vec();
-        println!("[DEBUG][export_gif] 裁剪后帧数: {}", trimmed_frames.len());
+        let trimmed_count = trimmed_frames.len();
+        println!("[DEBUG][export_gif] 裁剪后帧数: {}", trimmed_count);
 
-        let frame_step = if config.target_fps > 0 && config.target_fps < recording_fps {
-            (recording_fps / config.target_fps) as usize
+        // Calculate target frame count based on output duration and fps
+        // output_duration = original_duration / speed
+        // output_frames = output_duration × target_fps
+        let speed = config.speed.clamp(0.1, 10.0);
+        let original_duration = trimmed_count as f32 / recording_fps as f32;
+        let output_duration = original_duration / speed;
+        let target_frame_count = (output_duration * config.target_fps as f32).round() as usize;
+        let target_frame_count = target_frame_count.max(1);
+
+        // Sample frames uniformly
+        let sampled_frames: Vec<_> = if target_frame_count >= trimmed_count {
+            trimmed_frames
         } else {
-            1
+            (0..target_frame_count)
+                .map(|i| {
+                    let src_idx = (i as f32 * (trimmed_count - 1) as f32 / (target_frame_count - 1).max(1) as f32).round() as usize;
+                    trimmed_frames[src_idx.min(trimmed_count - 1)].clone()
+                })
+                .collect()
         };
-        let sampled_frames: Vec<_> = trimmed_frames.into_iter()
-            .step_by(frame_step)
-            .collect();
-        println!("[DEBUG][export_gif] 降帧后: step={}, 帧数={}", frame_step, sampled_frames.len());
+        println!("[DEBUG][export_gif] 采样后: target={}, 实际={}, speed={}", target_frame_count, sampled_frames.len(), speed);
 
         if sampled_frames.is_empty() {
             let _ = app.emit("export-complete", SaveResult {
@@ -328,8 +345,13 @@ pub fn export_gif(app: AppHandle, state: tauri::State<SharedState>, config: Expo
             return;
         }
 
-        let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
-        let filename = output_dir.join(format!("recording_{}.gif", timestamp));
+        // Use custom path or default
+        let filename = if let Some(ref custom_path) = config.output_path {
+            PathBuf::from(custom_path)
+        } else {
+            let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
+            output_dir.join(format!("recording_{}.gif", timestamp))
+        };
         println!("[DEBUG][export_gif] 保存路径: {:?}", filename);
 
         let (width, height) = final_frames[0].dimensions();
@@ -347,8 +369,10 @@ pub fn export_gif(app: AppHandle, state: tauri::State<SharedState>, config: Expo
             };
             encoder.set_repeat(repeat).map_err(|e| e.to_string())?;
 
+            // GIF delay is in 1/100 seconds: delay = 100 / fps
+            // (speed already affects frame count, so delay is just based on fps)
             let delay = if config.target_fps > 0 {
-                (100 / config.target_fps) as u16
+                (100.0 / config.target_fps as f32).max(1.0) as u16
             } else {
                 10
             };
@@ -362,7 +386,9 @@ pub fn export_gif(app: AppHandle, state: tauri::State<SharedState>, config: Expo
                     pixels.push(pixel[3]);
                 }
 
-                let mut frame = Frame::from_rgba_speed(width as u16, height as u16, &mut pixels, 30);
+                // Map quality (1-100) to gif speed (30-1): higher quality = lower speed = better but slower
+                let gif_speed = 30 - ((config.quality.clamp(1, 100) - 1) * 29 / 99);
+                let mut frame = Frame::from_rgba_speed(width as u16, height as u16, &mut pixels, gif_speed as i32);
                 frame.delay = delay;
                 encoder.write_frame(&frame).map_err(|e| e.to_string())?;
 

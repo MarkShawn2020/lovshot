@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { save } from "@tauri-apps/plugin-dialog";
 import "./App.css";
 
 type AppMode = "idle" | "recording" | "editing" | "exporting";
@@ -25,6 +26,9 @@ interface ExportConfig {
   output_scale: number;
   target_fps: number;
   loop_mode: string;
+  quality: number;
+  speed: number;
+  output_path: string | null;
 }
 
 interface SizeEstimate {
@@ -66,6 +70,9 @@ function App() {
     output_scale: 1,
     target_fps: 10,
     loop_mode: "infinite",
+    quality: 80,
+    speed: 1,
+    output_path: null,
   });
   const [sizeEstimate, setSizeEstimate] = useState<SizeEstimate | null>(null);
 
@@ -141,6 +148,9 @@ function App() {
           output_scale: 1,
           target_fps: 10,
           loop_mode: "infinite",
+          quality: 80,
+          speed: 1,
+          output_path: null,
         };
         setExportConfig(initialConfig);
         setMode("editing");
@@ -195,9 +205,17 @@ function App() {
   };
 
   const handleExport = async () => {
-    setMode("exporting");
     try {
-      await invoke("export_gif", { config: exportConfig });
+      // Open Finder save dialog
+      const path = await save({
+        defaultPath: `recording_${new Date().toISOString().replace(/[:.]/g, "").slice(0, 15)}.gif`,
+        filters: [{ name: "GIF", extensions: ["gif"] }],
+      });
+
+      if (!path) return; // User cancelled
+
+      setMode("exporting");
+      await invoke("export_gif", { config: { ...exportConfig, output_path: path } });
     } catch (e) {
       console.error("导出失败:", e);
       setMode("editing");
@@ -256,9 +274,16 @@ function App() {
     return seconds.toFixed(1) + "s";
   };
 
-  const trimmedDuration = recordingInfo
-    ? ((exportConfig.end_frame - exportConfig.start_frame) / recordingInfo.fps * 1000)
-    : 0;
+  // Calculate playback duration: original_duration / speed (FPS doesn't affect duration!)
+  const getPlaybackDuration = useCallback((frameCount: number) => {
+    if (!recordingInfo || recordingInfo.fps <= 0) return 0;
+    // Duration based on original recording fps, then divided by speed
+    const originalDurationSec = frameCount / recordingInfo.fps;
+    return (originalDurationSec / exportConfig.speed) * 1000;
+  }, [recordingInfo, exportConfig.speed]);
+
+  const trimmedFrameCount = exportConfig.end_frame - exportConfig.start_frame;
+  const trimmedDuration = getPlaybackDuration(trimmedFrameCount);
 
   return (
     <main className="container">
@@ -288,9 +313,9 @@ function App() {
             {/* Filmstrip 时间线 */}
             <div className="filmstrip-section">
               <div className="timeline-labels">
-                <span>{formatDuration(exportConfig.start_frame / recordingInfo.fps * 1000)}</span>
+                <span>{formatDuration(getPlaybackDuration(exportConfig.start_frame))}</span>
                 <span className="timeline-duration">{formatDuration(trimmedDuration)}</span>
-                <span>{formatDuration(exportConfig.end_frame / recordingInfo.fps * 1000)}</span>
+                <span>{formatDuration(getPlaybackDuration(exportConfig.end_frame))}</span>
               </div>
               <div
                 ref={filmstripRef}
@@ -342,17 +367,48 @@ function App() {
               </div>
 
               <div className="control-row">
+                <label>Quality</label>
+                <div className="speed-slider">
+                  <input
+                    type="range"
+                    min="1"
+                    max="100"
+                    step="1"
+                    value={exportConfig.quality}
+                    onChange={(e) => setExportConfig((c) => ({ ...c, quality: parseInt(e.target.value) }))}
+                  />
+                  <span className="speed-value">{exportConfig.quality}%</span>
+                </div>
+              </div>
+
+              <div className="control-row">
                 <label>FPS</label>
-                <select
-                  value={exportConfig.target_fps}
-                  onChange={(e) => setExportConfig((c) => ({ ...c, target_fps: parseInt(e.target.value) }))}
-                >
-                  <option value={5}>5</option>
-                  <option value={10}>10</option>
-                  <option value={15}>15</option>
-                  <option value={20}>20</option>
-                  <option value={30}>30</option>
-                </select>
+                <div className="speed-slider">
+                  <input
+                    type="range"
+                    min="1"
+                    max="60"
+                    step="1"
+                    value={exportConfig.target_fps}
+                    onChange={(e) => setExportConfig((c) => ({ ...c, target_fps: parseInt(e.target.value) }))}
+                  />
+                  <span className="speed-value">{exportConfig.target_fps}</span>
+                </div>
+              </div>
+
+              <div className="control-row">
+                <label>Speed</label>
+                <div className="speed-slider">
+                  <input
+                    type="range"
+                    min="0.1"
+                    max="10"
+                    step="0.1"
+                    value={exportConfig.speed}
+                    onChange={(e) => setExportConfig((c) => ({ ...c, speed: parseFloat(e.target.value) }))}
+                  />
+                  <span className="speed-value">{exportConfig.speed.toFixed(1)}×</span>
+                </div>
               </div>
 
               <div className="control-row">

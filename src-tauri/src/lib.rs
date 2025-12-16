@@ -9,7 +9,7 @@ use gif::{Encoder, Frame, Repeat};
 use image::RgbaImage;
 use screenshots::Screen;
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewWindowBuilder, WebviewUrl};
+use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewWindowBuilder, WebviewUrl, WindowEvent};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::image::Image as TauriImage;
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
@@ -850,6 +850,15 @@ pub fn run() {
             get_filmstrip,
             save_screenshot,
         ])
+        .on_window_event(|window, event| {
+            // macOS: Cmd+W 或点击关闭按钮时隐藏窗口而非退出
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                if window.label() == "main" {
+                    window.hide().unwrap();
+                    api.prevent_close();
+                }
+            }
+        })
         .setup(move |app| {
             // 创建系统托盘
             let tray_icon = load_tray_icon(false)

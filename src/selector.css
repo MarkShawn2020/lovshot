@@ -32,6 +32,30 @@ body,
   user-select: none;
 }
 
+.selector-container.hide-cursor {
+  cursor: none;
+}
+
+.crosshair-h,
+.crosshair-v {
+  position: fixed;
+  background: var(--primary);
+  pointer-events: none;
+  z-index: 5;
+}
+
+.crosshair-h {
+  left: 0;
+  width: 100vw;
+  height: 1px;
+}
+
+.crosshair-v {
+  top: 0;
+  height: 100vh;
+  width: 1px;
+}
+
 .selection {
   position: absolute;
   border: 2px solid var(--primary);

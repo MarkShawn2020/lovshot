@@ -14,6 +14,7 @@ use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}
 use tauri::image::Image as TauriImage;
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
 use tauri_plugin_clipboard_manager::ClipboardExt;
+use mouse_position::mouse_position::Mouse;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Region {
@@ -109,6 +110,21 @@ impl Default for AppState {
 }
 
 type SharedState = Arc<Mutex<AppState>>;
+
+#[tauri::command]
+fn get_mouse_position(state: tauri::State<SharedState>) -> Option<(f32, f32)> {
+    if let Mouse::Position { x, y } = Mouse::get_mouse_position() {
+        let s = state.lock().unwrap();
+        let screen_x = s.screen_x;
+        let screen_y = s.screen_y;
+        // mouse_position returns logical pixels (points) on macOS
+        let logical_x = x as f32 - screen_x as f32;
+        let logical_y = y as f32 - screen_y as f32;
+        Some((logical_x, logical_y))
+    } else {
+        None
+    }
+}
 
 #[tauri::command]
 fn get_screens() -> Vec<serde_json::Value> {
@@ -837,6 +853,7 @@ pub fn run() {
         .manage(state)
         .invoke_handler(tauri::generate_handler![
             get_screens,
+            get_mouse_position,
             capture_screenshot,
             open_selector,
             set_region,

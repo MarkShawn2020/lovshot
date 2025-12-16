@@ -31,6 +31,7 @@ image = "0.25"
 chrono = "0.4"
 dirs = "6"
 base64 = "0.22"
+mouse_position = "0.1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc = "0.2"

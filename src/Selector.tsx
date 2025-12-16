@@ -19,6 +19,7 @@ export default function Selector() {
   const [showHint, setShowHint] = useState(true);
   const [showToolbar, setShowToolbar] = useState(false);
   const [outputScale, setOutputScale] = useState<OutputScale>(1);
+  const [mousePos, setMousePos] = useState<{ x: number; y: number } | null>(null);
 
   const startPos = useRef({ x: 0, y: 0 });
   const selectionRef = useRef<HTMLDivElement>(null);
@@ -26,6 +27,19 @@ export default function Selector() {
 
   const closeWindow = useCallback(async () => {
     await getCurrentWindow().close();
+  }, []);
+
+  // Track mouse position globally
+  useEffect(() => {
+    const handler = (e: MouseEvent) => setMousePos({ x: e.clientX, y: e.clientY });
+    document.addEventListener("mousemove", handler);
+
+    // Get initial mouse position from Rust
+    invoke<[number, number] | null>("get_mouse_position").then((pos) => {
+      if (pos) setMousePos({ x: pos[0], y: pos[1] });
+    });
+
+    return () => document.removeEventListener("mousemove", handler);
   }, []);
 
   const doCapture = useCallback(async () => {
@@ -142,13 +156,21 @@ export default function Selector() {
       }
     : {};
 
+  const showCrosshair = showHint && !isSelecting && !showToolbar && mousePos;
+
   return (
     <div
-      className="selector-container"
+      className={`selector-container ${showCrosshair ? "hide-cursor" : ""}`}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
     >
+      {showCrosshair && (
+        <>
+          <div className="crosshair-h" style={{ top: mousePos!.y }} />
+          <div className="crosshair-v" style={{ left: mousePos!.x }} />
+        </>
+      )}
       <div ref={selectionRef} className="selection" />
       <div ref={sizeRef} className="size-label" />
 

@@ -7,58 +7,78 @@
 html, body, #root {
   width: 100%;
   height: 100%;
-  background: #F9F9F7;
+  background: transparent;
 }
 
 .scroll-overlay-container {
   width: 100%;
   height: 100%;
-  background: #F9F9F7;
+  background: var(--background, #F9F9F7);
   display: flex;
   flex-direction: column;
   font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-  color: #181818;
+  color: var(--foreground, #181818);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+}
+
+.btn-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 50%;
+  background: var(--muted-foreground, #87867F);
+  color: white;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  z-index: 100;
+}
+
+.btn-close:hover {
+  background: var(--destructive, #CC785C);
 }
 
 .scroll-overlay-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   padding: 10px 12px;
-  background: #F0EEE6;
-  border-bottom: 1px solid #E8E6DC;
+  padding-right: 36px;
+  background: var(--muted, #F0EEE6);
+  border-bottom: 1px solid var(--border, #E8E6DC);
   font-size: 13px;
   font-weight: 500;
+  cursor: grab;
 }
 
-.scroll-overlay-header span {
-  color: #181818;
+.scroll-overlay-header:active {
+  cursor: grabbing;
 }
 
 .scroll-overlay-stats {
   font-family: monospace;
   font-size: 11px;
-  color: #87867F;
+  color: var(--muted-foreground, #87867F);
+  text-align: center;
+  padding: 6px 12px;
+  background: var(--muted, #F0EEE6);
+  border-top: 1px solid var(--border, #E8E6DC);
 }
 
 .scroll-overlay-preview {
   flex: 1;
   min-height: 0;
   padding: 12px;
-  background: #F0EEE6;
+  background: var(--muted, #F0EEE6);
   overflow: hidden;
   display: flex;
   justify-content: center;
-  align-items: flex-start;
-}
-
-.scroll-overlay-preview img {
-  max-width: 100%;
-  max-height: 100%;
-  object-fit: contain;
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-  background: #fff;
+  align-items: center;
+  container-type: size;
 }
 
 .scroll-overlay-actions {
@@ -66,8 +86,8 @@ html, body, #root {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  background: #F9F9F7;
-  border-top: 1px solid #E8E6DC;
+  background: var(--background, #F9F9F7);
+  border-top: 1px solid var(--border, #E8E6DC);
 }
 
 .scroll-overlay-actions button {
@@ -88,21 +108,97 @@ html, body, #root {
 }
 
 .btn-stop {
-  background: #CC785C;
-  color: #fff;
+  background: var(--primary, #CC785C);
+  color: var(--primary-foreground, #fff);
 }
 
 .btn-copy {
-  background: #5C8ACC;
-  color: #fff;
+  background: var(--secondary, #5C8ACC);
+  color: var(--secondary-foreground, #fff);
 }
 
 .btn-save {
-  background: #CC785C;
-  color: #fff;
+  background: var(--primary, #CC785C);
+  color: var(--primary-foreground, #fff);
 }
 
-.btn-cancel {
-  background: #87867F;
-  color: #fff;
+/* Crop wrapper */
+.crop-wrapper {
+  position: relative;
+  display: inline-block;
+}
+
+.crop-wrapper img {
+  display: block;
+  user-select: none;
+  max-width: 100cqw;
+  max-height: 100cqh;
+  width: auto;
+  height: auto;
+}
+
+/* Crop overlay (darkened areas) */
+.crop-overlay {
+  position: absolute;
+  background: rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+
+.crop-top {
+  top: 0;
+  left: 0;
+  right: 0;
+}
+
+.crop-bottom {
+  bottom: 0;
+  left: 0;
+  right: 0;
+}
+
+.crop-left {
+  left: 0;
+}
+
+.crop-right {
+  right: 0;
+}
+
+/* Drag handles */
+.crop-handle {
+  position: absolute;
+  background: var(--primary, #CC785C);
+  z-index: 10;
+}
+
+.crop-handle-top,
+.crop-handle-bottom {
+  left: 0;
+  right: 0;
+  height: 4px;
+  cursor: ns-resize;
+}
+
+.crop-handle-top {
+  transform: translateY(-50%);
+}
+
+.crop-handle-bottom {
+  transform: translateY(50%);
+}
+
+.crop-handle-left,
+.crop-handle-right {
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  cursor: ew-resize;
+}
+
+.crop-handle-left {
+  transform: translateX(-50%);
+}
+
+.crop-handle-right {
+  transform: translateX(50%);
 }

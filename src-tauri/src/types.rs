@@ -82,3 +82,12 @@ pub struct ScrollCaptureProgress {
     pub total_height: u32,
     pub preview_base64: String,
 }
+
+/// Crop edges for scroll capture (percentage from each edge, 0-100)
+#[derive(Clone, Serialize, Deserialize, Default)]
+pub struct CropEdges {
+    pub top: f32,
+    pub bottom: f32,
+    pub left: f32,
+    pub right: f32,
+}

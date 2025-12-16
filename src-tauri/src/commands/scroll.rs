@@ -7,7 +7,7 @@ use tauri::{AppHandle, Manager, WebviewWindowBuilder, WebviewUrl, PhysicalPositi
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
 use crate::state::SharedState;
-use crate::types::{ScrollCaptureProgress, Region};
+use crate::types::{ScrollCaptureProgress, Region, CropEdges};
 
 /// Start scroll capture mode - captures the initial frame
 #[tauri::command]
@@ -251,14 +251,16 @@ pub fn get_scroll_preview(state: tauri::State<SharedState>) -> Result<ScrollCapt
 
 /// Copy scroll capture to clipboard
 #[tauri::command]
-pub fn copy_scroll_to_clipboard(app: AppHandle, state: tauri::State<SharedState>) -> Result<(), String> {
+pub fn copy_scroll_to_clipboard(app: AppHandle, state: tauri::State<SharedState>, crop: Option<CropEdges>) -> Result<(), String> {
     let s = state.lock().unwrap();
     let stitched = s.scroll_stitched.as_ref().ok_or("No stitched image")?;
 
+    let final_img = apply_crop(stitched, crop)?;
+
     let tauri_image = tauri::image::Image::new_owned(
-        stitched.as_raw().to_vec(),
-        stitched.width(),
-        stitched.height(),
+        final_img.as_raw().to_vec(),
+        final_img.width(),
+        final_img.height(),
     );
     app.clipboard().write_image(&tauri_image).map_err(|e| e.to_string())?;
 
@@ -267,7 +269,7 @@ pub fn copy_scroll_to_clipboard(app: AppHandle, state: tauri::State<SharedState>
 
 /// Finish scroll capture - save the stitched image to specified path
 #[tauri::command]
-pub fn finish_scroll_capture(state: tauri::State<SharedState>, path: String) -> Result<String, String> {
+pub fn finish_scroll_capture(state: tauri::State<SharedState>, path: String, crop: Option<CropEdges>) -> Result<String, String> {
     let mut s = state.lock().unwrap();
 
     if !s.scroll_capturing {
@@ -283,8 +285,9 @@ pub fn finish_scroll_capture(state: tauri::State<SharedState>, path: String) -> 
 
     drop(s);
 
-    // Save to specified path
-    stitched.save(&path).map_err(|e| e.to_string())?;
+    // Apply crop and save
+    let final_img = apply_crop(&stitched, crop)?;
+    final_img.save(&path).map_err(|e| e.to_string())?;
 
     Ok(path)
 }
@@ -376,6 +379,35 @@ fn stitch_scroll_image(
     }
 }
 
+/// Apply percentage-based edge crop to an image
+fn apply_crop(img: &RgbaImage, crop: Option<CropEdges>) -> Result<RgbaImage, String> {
+    let crop = match crop {
+        Some(c) if c.top > 0.0 || c.bottom > 0.0 || c.left > 0.0 || c.right > 0.0 => c,
+        _ => return Ok(img.clone()), // No crop
+    };
+
+    let (w, h) = img.dimensions();
+
+    // Convert percentage to pixels
+    let top_px = ((crop.top / 100.0) * h as f32).round() as u32;
+    let bottom_px = ((crop.bottom / 100.0) * h as f32).round() as u32;
+    let left_px = ((crop.left / 100.0) * w as f32).round() as u32;
+    let right_px = ((crop.right / 100.0) * w as f32).round() as u32;
+
+    // Validate
+    if left_px + right_px >= w || top_px + bottom_px >= h {
+        return Err("Crop exceeds image bounds".to_string());
+    }
+
+    let new_w = w - left_px - right_px;
+    let new_h = h - top_px - bottom_px;
+
+    let cropped = DynamicImage::ImageRgba8(img.clone())
+        .crop_imm(left_px, top_px, new_w, new_h)
+        .to_rgba8();
+    Ok(cropped)
+}
+
 /// Generate a preview image as base64 JPEG (fast), scaled to fit max_height
 fn generate_preview_base64(img: &RgbaImage, max_height: u32) -> Result<String, String> {
     let (w, h) = img.dimensions();
@@ -449,29 +481,13 @@ pub fn open_scroll_overlay(app: AppHandle, state: tauri::State<SharedState>, reg
         .inner_size(panel_width as f64, panel_height as f64)
         .min_inner_size(280.0, 200.0)
         .position(panel_x as f64, panel_y as f64)
-        .decorations(true)
+        .decorations(false)
         .resizable(true)
         .always_on_top(true)
         .focused(true)
+        .transparent(true)
         .build()
         .map_err(|e| e.to_string())?;
-
-    // macOS: Hide traffic light buttons
-    #[cfg(target_os = "macos")]
-    {
-        use objc::{msg_send, sel, sel_impl};
-        let _ = win.with_webview(|webview| {
-            unsafe {
-                let ns_window = webview.ns_window() as *mut objc::runtime::Object;
-                for i in 0u64..3 {
-                    let button: *mut objc::runtime::Object = msg_send![ns_window, standardWindowButton: i];
-                    if !button.is_null() {
-                        let _: () = msg_send![button, setHidden: true];
-                    }
-                }
-            }
-        });
-    }
 
     win.show().map_err(|e| e.to_string())?;
     win.set_focus().map_err(|e| e.to_string())?;

@@ -10,6 +10,8 @@ use image::RgbaImage;
 use screenshots::Screen;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewWindowBuilder, WebviewUrl};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::image::Image as TauriImage;
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
@@ -63,6 +65,14 @@ pub struct SizeEstimate {
     pub output_height: u32,
     pub estimated_bytes: u64,
     pub formatted: String,
+}
+
+// 导出进度
+#[derive(Clone, Serialize, Deserialize)]
+pub struct ExportProgress {
+    pub current: usize,
+    pub total: usize,
+    pub stage: String, // "encoding", "scaling", etc.
 }
 
 #[derive(Clone, Default)]
@@ -249,12 +259,8 @@ fn start_recording(app: AppHandle, state: tauri::State<SharedState>) -> Result<(
     let recording_fps = s.recording_fps;  // 使用固定录制帧率
     drop(s);
 
-    // 显示主窗口，让用户可以看到录制状态和停止按钮
-    if let Some(main_win) = app.get_webview_window("main") {
-        println!("[DEBUG][start_recording] 显示主窗口");
-        let _ = main_win.show();
-        let _ = main_win.set_focus();
-    }
+    // 录制时不显示窗口，只更新托盘图标
+    update_tray_icon(&app, true);
 
     let state_clone = state.inner().clone();
     let app_clone = app.clone();
@@ -278,7 +284,23 @@ fn start_recording(app: AppHandle, state: tauri::State<SharedState>) -> Result<(
             {
                 let s = state_clone.lock().unwrap();
                 if !s.recording {
-                    println!("[DEBUG][recording_thread] 录制停止，共捕获 {} 帧", s.frames.len());
+                    let frame_count = s.frames.len();
+                    println!("[DEBUG][recording_thread] 录制停止，共捕获 {} 帧", frame_count);
+                    drop(s);
+
+                    // 恢复托盘图标
+                    update_tray_icon(&app_clone, false);
+
+                    // 显示主窗口进入编辑模式
+                    if let Some(main_win) = app_clone.get_webview_window("main") {
+                        let _ = main_win.show();
+                        let _ = main_win.set_focus();
+                    }
+
+                    // 录制线程退出时发送事件，确保所有帧已写入
+                    let _ = app_clone.emit("recording-stopped", serde_json::json!({
+                        "frame_count": frame_count
+                    }));
                     break;
                 }
             }
@@ -326,18 +348,12 @@ fn start_recording(app: AppHandle, state: tauri::State<SharedState>) -> Result<(
 }
 
 #[tauri::command]
-fn stop_recording(app: AppHandle, state: tauri::State<SharedState>) {
+fn stop_recording(state: tauri::State<SharedState>) {
     println!("[DEBUG][stop_recording] ====== 被调用 ======");
     let mut s = state.lock().unwrap();
     s.recording = false;
-    let frame_count = s.frames.len();
-    println!("[DEBUG][stop_recording] 录制已停止, 帧数: {}", frame_count);
-    drop(s);
-
-    // 通知前端进入编辑模式
-    let _ = app.emit("recording-stopped", serde_json::json!({
-        "frame_count": frame_count
-    }));
+    println!("[DEBUG][stop_recording] 录制标志已设置为 false");
+    // 事件由录制线程退出时发送，避免竞态条件
 }
 
 #[tauri::command]
@@ -751,6 +767,13 @@ fn export_gif(app: AppHandle, state: tauri::State<SharedState>, config: ExportCo
                 frame.delay = delay;
                 encoder.write_frame(&frame).map_err(|e| e.to_string())?;
 
+                // 发送进度事件
+                let _ = app.emit("export-progress", ExportProgress {
+                    current: i + 1,
+                    total: frame_count,
+                    stage: "encoding".to_string(),
+                });
+
                 if i == 0 || (i + 1) % 10 == 0 || i + 1 == frame_count {
                     println!("[DEBUG][export_gif] 编码帧 {}/{}", i + 1, frame_count);
                 }
@@ -787,6 +810,7 @@ pub fn run() {
     let state: SharedState = Arc::new(Mutex::new(AppState::default()));
 
     let state_for_shortcut = state.clone();
+    let state_for_tray = state.clone();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -794,10 +818,14 @@ pub fn run() {
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(move |app, _shortcut, event| {
                     if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
-                        println!("[DEBUG][shortcut] Shift+Alt+A pressed");
-                        // Check if not recording before opening selector
+                        println!("[DEBUG][shortcut] Option+A pressed");
                         let is_recording = state_for_shortcut.lock().unwrap().recording;
-                        if !is_recording {
+                        if is_recording {
+                            // 正在录制时，按快捷键停止
+                            println!("[DEBUG][shortcut] 停止录制");
+                            state_for_shortcut.lock().unwrap().recording = false;
+                        } else {
+                            // 未录制时，打开选择器
                             let _ = open_selector_internal(app.clone());
                         }
                     }
@@ -822,15 +850,80 @@ pub fn run() {
             get_filmstrip,
             save_screenshot,
         ])
-        .setup(|app| {
-            // Register global shortcut
-            let shortcut = Shortcut::new(Some(Modifiers::SHIFT | Modifiers::ALT), Code::KeyA);
+        .setup(move |app| {
+            // 创建系统托盘
+            let tray_icon = load_tray_icon(false)
+                .unwrap_or_else(|| app.default_window_icon().unwrap().clone());
+
+            let state_clone = state_for_tray.clone();
+            let _tray = TrayIconBuilder::with_id("main")
+                .icon(tray_icon)
+                .tooltip("Lovshot - Option+A to capture")
+                .on_tray_icon_event(move |tray, event| {
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
+                        let app = tray.app_handle();
+                        let is_recording = state_clone.lock().unwrap().recording;
+                        if is_recording {
+                            // 点击托盘停止录制
+                            println!("[DEBUG][tray] 点击托盘停止录制");
+                            state_clone.lock().unwrap().recording = false;
+                        } else {
+                            // 点击托盘打开选择器
+                            let _ = open_selector_internal(app.clone());
+                        }
+                    }
+                })
+                .build(app)?;
+
+            // 注册全局快捷键 Option+A
+            let shortcut = Shortcut::new(Some(Modifiers::ALT), Code::KeyA);
             app.global_shortcut().register(shortcut)?;
-            println!("[DEBUG] Global shortcut Shift+Alt+A registered");
+            println!("[DEBUG] Global shortcut Option+A registered");
+
+            // 隐藏主窗口（仅在编辑时显示）
+            if let Some(main_win) = app.get_webview_window("main") {
+                let _ = main_win.hide();
+            }
+
             Ok(())
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+/// 加载托盘图标
+fn load_tray_icon(is_recording: bool) -> Option<TauriImage<'static>> {
+    let icon_bytes: &[u8] = if is_recording {
+        include_bytes!("../icons/tray-recording.png")
+    } else {
+        include_bytes!("../icons/tray-icon.png")
+    };
+
+    // 解析 PNG 获取尺寸和 RGBA 数据
+    let img = image::load_from_memory(icon_bytes).ok()?;
+    let rgba = img.to_rgba8();
+    let (width, height) = rgba.dimensions();
+    Some(TauriImage::new_owned(rgba.into_raw(), width, height))
+}
+
+/// 更新托盘图标（录制状态）
+fn update_tray_icon(app: &AppHandle, is_recording: bool) {
+    if let Some(icon) = load_tray_icon(is_recording) {
+        if let Some(tray) = app.tray_by_id("main") {
+            let _ = tray.set_icon(Some(icon));
+            let tooltip = if is_recording {
+                "Lovshot - Recording... (Option+A to stop)"
+            } else {
+                "Lovshot - Option+A to capture"
+            };
+            let _ = tray.set_tooltip(Some(tooltip));
+        }
+    }
 }
 
 // Internal function to open selector (called from shortcut handler)

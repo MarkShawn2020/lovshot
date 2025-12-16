@@ -41,6 +41,12 @@ interface SaveResult {
   error: string | null;
 }
 
+interface ExportProgress {
+  current: number;
+  total: number;
+  stage: string;
+}
+
 interface ResolutionPreset {
   label: string;
   height: number;
@@ -65,6 +71,9 @@ function App() {
 
   // Filmstrip
   const [filmstrip, setFilmstrip] = useState<string[]>([]);
+
+  // 导出进度
+  const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null);
 
   // Filmstrip 拖动状态
   const filmstripRef = useRef<HTMLDivElement>(null);
@@ -153,6 +162,7 @@ function App() {
       setRecordingInfo(null);
       setSizeEstimate(null);
       setFilmstrip([]);
+      setExportProgress(null);
       if (event.payload.success && event.payload.path) {
         setSavedPath(event.payload.path);
         setTimeout(() => setSavedPath(""), 3000);
@@ -161,10 +171,15 @@ function App() {
       }
     });
 
+    const unlistenProgress = listen<ExportProgress>("export-progress", (event) => {
+      setExportProgress(event.payload);
+    });
+
     return () => {
       unlistenRecording.then((fn) => fn());
       unlistenStopped.then((fn) => fn());
       unlistenExport.then((fn) => fn());
+      unlistenProgress.then((fn) => fn());
     };
   }, [updateSizeEstimate]);
 
@@ -257,7 +272,7 @@ function App() {
       <div className="controls">
         {mode === "idle" && (
           <p className="shortcut-hint">
-            按 <kbd>⇧</kbd> + <kbd>⌥</kbd> + <kbd>A</kbd> 开始录制
+            按 <kbd>⌥</kbd> + <kbd>A</kbd> 开始录制
           </p>
         )}
 
@@ -371,7 +386,20 @@ function App() {
         )}
 
         {mode === "exporting" && (
-          <p className="saving-hint">Exporting GIF...</p>
+          <div className="exporting-status">
+            <p className="saving-hint">
+              Exporting GIF...
+              {exportProgress && ` (${exportProgress.current}/${exportProgress.total})`}
+            </p>
+            {exportProgress && (
+              <div className="progress-bar">
+                <div
+                  className="progress-fill"
+                  style={{ width: `${(exportProgress.current / exportProgress.total) * 100}%` }}
+                />
+              </div>
+            )}
+          </div>
         )}
       </div>
 

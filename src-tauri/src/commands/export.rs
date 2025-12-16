@@ -1,0 +1,404 @@
+use std::fs::File;
+use std::path::PathBuf;
+use std::thread;
+
+use base64::{Engine, engine::general_purpose::STANDARD};
+use gif::{Encoder, Frame, Repeat};
+use image::RgbaImage;
+use screenshots::Screen;
+use tauri::{AppHandle, Emitter};
+use tauri_plugin_clipboard_manager::ClipboardExt;
+
+use crate::state::SharedState;
+use crate::types::{ExportConfig, ExportProgress, GifLoopMode, SaveResult, SizeEstimate};
+
+#[tauri::command]
+pub fn estimate_export_size(state: tauri::State<SharedState>, config: ExportConfig) -> SizeEstimate {
+    let s = state.lock().unwrap();
+
+    let (orig_width, orig_height) = if let Some(frame) = s.frames.first() {
+        frame.dimensions()
+    } else {
+        return SizeEstimate {
+            frame_count: 0,
+            output_width: 0,
+            output_height: 0,
+            estimated_bytes: 0,
+            formatted: "0 B".to_string(),
+        };
+    };
+
+    let start = config.start_frame.min(s.frames.len());
+    let end = config.end_frame.min(s.frames.len());
+    let trimmed_count = if end > start { end - start } else { 0 };
+
+    let frame_step = if config.target_fps > 0 && config.target_fps < s.recording_fps {
+        s.recording_fps / config.target_fps
+    } else {
+        1
+    };
+    let final_frame_count = (trimmed_count + frame_step as usize - 1) / frame_step as usize;
+
+    let output_width = (orig_width as f32 * config.output_scale) as u32;
+    let output_height = (orig_height as f32 * config.output_scale) as u32;
+
+    let total_frames = if config.loop_mode == "pingpong" && final_frame_count > 2 {
+        final_frame_count * 2 - 2
+    } else {
+        final_frame_count
+    };
+
+    let bytes_per_pixel = 0.15;
+    let estimated_bytes = (total_frames as f64 * output_width as f64 * output_height as f64 * bytes_per_pixel) as u64;
+    let formatted = format_bytes(estimated_bytes);
+
+    SizeEstimate {
+        frame_count: total_frames,
+        output_width,
+        output_height,
+        estimated_bytes,
+        formatted,
+    }
+}
+
+fn format_bytes(bytes: u64) -> String {
+    const KB: u64 = 1024;
+    const MB: u64 = KB * 1024;
+    const GB: u64 = MB * 1024;
+
+    if bytes >= GB {
+        format!("{:.1} GB", bytes as f64 / GB as f64)
+    } else if bytes >= MB {
+        format!("{:.1} MB", bytes as f64 / MB as f64)
+    } else if bytes >= KB {
+        format!("{:.1} KB", bytes as f64 / KB as f64)
+    } else {
+        format!("{} B", bytes)
+    }
+}
+
+#[tauri::command]
+pub fn get_frame_thumbnail(state: tauri::State<SharedState>, frame_index: usize, max_height: u32) -> Result<String, String> {
+    let s = state.lock().unwrap();
+
+    if frame_index >= s.frames.len() {
+        return Err("Frame index out of bounds".to_string());
+    }
+
+    let frame = &s.frames[frame_index];
+    let (orig_w, orig_h) = frame.dimensions();
+
+    let scale = max_height as f32 / orig_h as f32;
+    let thumb_w = (orig_w as f32 * scale) as u32;
+    let thumb_h = max_height;
+
+    let thumbnail = image::imageops::resize(frame, thumb_w, thumb_h, image::imageops::FilterType::Triangle);
+
+    use image::ImageEncoder;
+    let mut png_data = Vec::new();
+    let encoder = image::codecs::png::PngEncoder::new(&mut png_data);
+    encoder.write_image(
+        thumbnail.as_raw(),
+        thumb_w,
+        thumb_h,
+        image::ExtendedColorType::Rgba8,
+    ).map_err(|e| e.to_string())?;
+
+    let base64_str = STANDARD.encode(&png_data);
+    Ok(format!("data:image/png;base64,{}", base64_str))
+}
+
+#[tauri::command]
+pub fn get_filmstrip(state: tauri::State<SharedState>, count: usize, thumb_height: u32) -> Result<Vec<String>, String> {
+    let s = state.lock().unwrap();
+    let total = s.frames.len();
+
+    if total == 0 {
+        return Err("No frames available".to_string());
+    }
+
+    let count = count.min(total).max(1);
+    let step = if count > 1 { (total - 1) as f32 / (count - 1) as f32 } else { 0.0 };
+
+    let mut thumbnails = Vec::with_capacity(count);
+
+    for i in 0..count {
+        let frame_idx = if count > 1 {
+            ((i as f32 * step).round() as usize).min(total - 1)
+        } else {
+            0
+        };
+
+        let frame = &s.frames[frame_idx];
+        let (orig_w, orig_h) = frame.dimensions();
+
+        let scale = thumb_height as f32 / orig_h as f32;
+        let thumb_w = (orig_w as f32 * scale) as u32;
+
+        let thumbnail = image::imageops::resize(frame, thumb_w, thumb_height, image::imageops::FilterType::Nearest);
+
+        let rgb_thumbnail = image::DynamicImage::ImageRgba8(thumbnail).to_rgb8();
+        let mut jpg_data = Vec::new();
+        let mut cursor = std::io::Cursor::new(&mut jpg_data);
+        rgb_thumbnail.write_to(&mut cursor, image::ImageFormat::Jpeg).map_err(|e| e.to_string())?;
+
+        let base64_str = STANDARD.encode(&jpg_data);
+        thumbnails.push(format!("data:image/jpeg;base64,{}", base64_str));
+    }
+
+    Ok(thumbnails)
+}
+
+#[tauri::command]
+pub fn save_screenshot(app: AppHandle, state: tauri::State<SharedState>, scale: Option<f32>) -> Result<String, String> {
+    println!("[DEBUG][save_screenshot] ====== 被调用 ======");
+    let s = state.lock().unwrap();
+    let region = s.region.clone().ok_or("No region selected")?;
+    let output_scale = scale.unwrap_or(1.0).clamp(0.1, 1.0);
+    println!("[DEBUG][save_screenshot] region: x={}, y={}, w={}, h={}, scale={}",
+        region.x, region.y, region.width, region.height, output_scale);
+    drop(s);
+
+    let screens = Screen::all().map_err(|e| {
+        println!("[DEBUG][save_screenshot] Screen::all 错误: {}", e);
+        e.to_string()
+    })?;
+    if screens.is_empty() {
+        println!("[DEBUG][save_screenshot] 没有找到屏幕");
+        return Err("No screens found".to_string());
+    }
+    println!("[DEBUG][save_screenshot] 找到 {} 个屏幕", screens.len());
+
+    let screen = &screens[0];
+    println!("[DEBUG][save_screenshot] 调用 capture_area: x={}, y={}, w={}, h={}", region.x, region.y, region.width, region.height);
+    let captured = screen.capture_area(region.x, region.y, region.width, region.height)
+        .map_err(|e| {
+            println!("[DEBUG][save_screenshot] capture_area 错误: {}", e);
+            e.to_string()
+        })?;
+    println!("[DEBUG][save_screenshot] capture_area 成功, 图像尺寸: {}x{}", captured.width(), captured.height());
+
+    let captured_rgba = RgbaImage::from_raw(
+        captured.width(),
+        captured.height(),
+        captured.into_raw(),
+    ).ok_or("Failed to convert image")?;
+
+    let img = if (output_scale - 1.0).abs() > 0.01 {
+        let new_w = (captured_rgba.width() as f32 * output_scale) as u32;
+        let new_h = (captured_rgba.height() as f32 * output_scale) as u32;
+        println!("[DEBUG][save_screenshot] 缩放到: {}x{}", new_w, new_h);
+        image::imageops::resize(&captured_rgba, new_w, new_h, image::imageops::FilterType::Lanczos3)
+    } else {
+        captured_rgba
+    };
+
+    let tauri_image = tauri::image::Image::new_owned(
+        img.as_raw().to_vec(),
+        img.width(),
+        img.height(),
+    );
+    app.clipboard().write_image(&tauri_image).map_err(|e| {
+        println!("[DEBUG][save_screenshot] 复制到剪切板错误: {}", e);
+        e.to_string()
+    })?;
+    println!("[DEBUG][save_screenshot] 已复制到剪切板");
+
+    let output_dir = dirs::picture_dir()
+        .or_else(|| dirs::home_dir())
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("lovshot");
+    println!("[DEBUG][save_screenshot] 输出目录: {:?}", output_dir);
+
+    std::fs::create_dir_all(&output_dir).map_err(|e| e.to_string())?;
+
+    let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
+    let filename = output_dir.join(format!("screenshot_{}.png", timestamp));
+    println!("[DEBUG][save_screenshot] 保存文件: {:?}", filename);
+
+    img.save(&filename).map_err(|e| {
+        println!("[DEBUG][save_screenshot] 保存文件错误: {}", e);
+        e.to_string()
+    })?;
+    println!("[DEBUG][save_screenshot] 文件保存成功");
+
+    Ok(filename.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub fn export_gif(app: AppHandle, state: tauri::State<SharedState>, config: ExportConfig) -> Result<(), String> {
+    println!("[DEBUG][export_gif] ====== 被调用 ======");
+    println!("[DEBUG][export_gif] config: start={}, end={}, scale={}, fps={}, loop={}",
+        config.start_frame, config.end_frame, config.output_scale, config.target_fps, config.loop_mode);
+
+    let mut s = state.lock().unwrap();
+
+    if s.frames.is_empty() {
+        println!("[DEBUG][export_gif] 错误: 没有帧可保存");
+        let _ = app.emit("export-complete", SaveResult {
+            success: false,
+            path: None,
+            error: Some("No frames to export".to_string()),
+        });
+        return Ok(());
+    }
+
+    let total_frames = s.frames.len();
+    let recording_fps = s.recording_fps;
+    println!("[DEBUG][export_gif] 原始帧数: {}, 录制帧率: {}", total_frames, recording_fps);
+
+    let all_frames = std::mem::take(&mut s.frames);
+    drop(s);
+
+    let config = config.clone();
+
+    thread::spawn(move || {
+        let start = config.start_frame.min(total_frames);
+        let end = config.end_frame.min(total_frames);
+        if end <= start {
+            let _ = app.emit("export-complete", SaveResult {
+                success: false,
+                path: None,
+                error: Some("Invalid frame range".to_string()),
+            });
+            return;
+        }
+        let trimmed_frames: Vec<_> = all_frames[start..end].to_vec();
+        println!("[DEBUG][export_gif] 裁剪后帧数: {}", trimmed_frames.len());
+
+        let frame_step = if config.target_fps > 0 && config.target_fps < recording_fps {
+            (recording_fps / config.target_fps) as usize
+        } else {
+            1
+        };
+        let sampled_frames: Vec<_> = trimmed_frames.into_iter()
+            .step_by(frame_step)
+            .collect();
+        println!("[DEBUG][export_gif] 降帧后: step={}, 帧数={}", frame_step, sampled_frames.len());
+
+        if sampled_frames.is_empty() {
+            let _ = app.emit("export-complete", SaveResult {
+                success: false,
+                path: None,
+                error: Some("No frames after sampling".to_string()),
+            });
+            return;
+        }
+
+        let output_scale = config.output_scale.clamp(0.1, 1.0);
+        let scaled_frames: Vec<RgbaImage> = if (output_scale - 1.0).abs() > 0.01 {
+            println!("[DEBUG][export_gif] 缩放帧: scale={}", output_scale);
+            sampled_frames.into_iter().map(|f| {
+                let new_w = (f.width() as f32 * output_scale) as u32;
+                let new_h = (f.height() as f32 * output_scale) as u32;
+                image::imageops::resize(&f, new_w, new_h, image::imageops::FilterType::Triangle)
+            }).collect()
+        } else {
+            sampled_frames
+        };
+
+        let gif_loop_mode = match config.loop_mode.as_str() {
+            "once" => GifLoopMode::Once,
+            "pingpong" => GifLoopMode::PingPong,
+            _ => GifLoopMode::Infinite,
+        };
+
+        let final_frames: Vec<RgbaImage> = match gif_loop_mode {
+            GifLoopMode::PingPong if scaled_frames.len() > 2 => {
+                let mut result = scaled_frames.clone();
+                let reversed: Vec<_> = scaled_frames[1..scaled_frames.len()-1].iter().rev().cloned().collect();
+                result.extend(reversed);
+                println!("[DEBUG][export_gif] PingPong 模式: {} -> {} 帧", scaled_frames.len(), result.len());
+                result
+            }
+            _ => scaled_frames,
+        };
+
+        let output_dir = dirs::picture_dir()
+            .or_else(|| dirs::home_dir())
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("lovshot");
+
+        if let Err(e) = std::fs::create_dir_all(&output_dir) {
+            let _ = app.emit("export-complete", SaveResult {
+                success: false,
+                path: None,
+                error: Some(e.to_string()),
+            });
+            return;
+        }
+
+        let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
+        let filename = output_dir.join(format!("recording_{}.gif", timestamp));
+        println!("[DEBUG][export_gif] 保存路径: {:?}", filename);
+
+        let (width, height) = final_frames[0].dimensions();
+        let frame_count = final_frames.len();
+        println!("[DEBUG][export_gif] 开始编码: {}x{}, {} 帧", width, height, frame_count);
+
+        let result = (|| -> Result<String, String> {
+            let mut file = File::create(&filename).map_err(|e| e.to_string())?;
+            let mut encoder = Encoder::new(&mut file, width as u16, height as u16, &[])
+                .map_err(|e| e.to_string())?;
+
+            let repeat = match gif_loop_mode {
+                GifLoopMode::Once => Repeat::Finite(0),
+                _ => Repeat::Infinite,
+            };
+            encoder.set_repeat(repeat).map_err(|e| e.to_string())?;
+
+            let delay = if config.target_fps > 0 {
+                (100 / config.target_fps) as u16
+            } else {
+                10
+            };
+
+            for (i, rgba_img) in final_frames.into_iter().enumerate() {
+                let mut pixels: Vec<u8> = Vec::with_capacity((width * height * 4) as usize);
+                for pixel in rgba_img.pixels() {
+                    pixels.push(pixel[0]);
+                    pixels.push(pixel[1]);
+                    pixels.push(pixel[2]);
+                    pixels.push(pixel[3]);
+                }
+
+                let mut frame = Frame::from_rgba_speed(width as u16, height as u16, &mut pixels, 30);
+                frame.delay = delay;
+                encoder.write_frame(&frame).map_err(|e| e.to_string())?;
+
+                let _ = app.emit("export-progress", ExportProgress {
+                    current: i + 1,
+                    total: frame_count,
+                    stage: "encoding".to_string(),
+                });
+
+                if i == 0 || (i + 1) % 10 == 0 || i + 1 == frame_count {
+                    println!("[DEBUG][export_gif] 编码帧 {}/{}", i + 1, frame_count);
+                }
+            }
+
+            Ok(filename.to_string_lossy().to_string())
+        })();
+
+        match result {
+            Ok(path) => {
+                println!("[DEBUG][export_gif] ====== 完成 ====== 路径: {}", path);
+                let _ = app.emit("export-complete", SaveResult {
+                    success: true,
+                    path: Some(path),
+                    error: None,
+                });
+            }
+            Err(e) => {
+                println!("[DEBUG][export_gif] ====== 错误 ====== {}", e);
+                let _ = app.emit("export-complete", SaveResult {
+                    success: false,
+                    path: None,
+                    error: Some(e),
+                });
+            }
+        }
+    });
+
+    Ok(())
+}

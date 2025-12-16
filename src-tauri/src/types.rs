@@ -1,0 +1,75 @@
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Region {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct RecordingState {
+    pub is_recording: bool,
+    pub frame_count: u32,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct SaveResult {
+    pub success: bool,
+    pub path: Option<String>,
+    pub error: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct ExportConfig {
+    pub start_frame: usize,
+    pub end_frame: usize,
+    pub output_scale: f32,
+    pub target_fps: u32,
+    pub loop_mode: String, // "infinite", "once", "pingpong"
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct RecordingInfo {
+    pub frame_count: usize,
+    pub width: u32,
+    pub height: u32,
+    pub fps: u32,
+    pub duration_ms: u64,
+    pub has_frames: bool,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct SizeEstimate {
+    pub frame_count: usize,
+    pub output_width: u32,
+    pub output_height: u32,
+    pub estimated_bytes: u64,
+    pub formatted: String,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct ExportProgress {
+    pub current: usize,
+    pub total: usize,
+    pub stage: String,
+}
+
+#[derive(Clone, Default)]
+pub enum GifLoopMode {
+    #[default]
+    Infinite,
+    Once,
+    PingPong,
+}
+
+/// Capture mode: image (screenshot), gif, or video
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, Default, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum CaptureMode {
+    #[default]
+    Image,
+    Gif,
+    Video,
+}

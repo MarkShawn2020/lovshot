@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.13.5
+
+### Patch Changes
+
+- 4b76224: 添加 GitHub Actions CI/CD 自动发布流程
+
 ## 0.13.4
 
 ### Patch Changes

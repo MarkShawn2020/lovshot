@@ -3,6 +3,8 @@ name: Release
 on:
   push:
     branches: [main]
+    tags:
+      - 'v*'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -10,13 +12,11 @@ concurrency:
 
 jobs:
   release:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: write
       pull-requests: write
-    outputs:
-      released: ${{ steps.changesets.outputs.published }}
-      publishedPackages: ${{ steps.changesets.outputs.publishedPackages }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -25,7 +25,8 @@ jobs:
           node-version: 20
           cache: pnpm
       - run: pnpm install
-      - name: Create Release
+
+      - name: Create Release Pull Request or Tag
         id: changesets
         uses: changesets/action@v1
         with:
@@ -33,9 +34,20 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Push tag if version changed
+        if: steps.changesets.outputs.hasChangesets == 'false'
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if ! git ls-remote --tags origin | grep -q "refs/tags/v$VERSION$"; then
+            git tag "v$VERSION"
+            git push origin "v$VERSION"
+            echo "Tagged v$VERSION"
+          else
+            echo "Tag v$VERSION already exists"
+          fi
+
   build:
-    needs: release
-    if: needs.release.outputs.released == 'true'
+    if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
     strategy:
@@ -76,8 +88,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: v__VERSION__
-          releaseName: lovshot v__VERSION__
+          tagName: ${{ github.ref_name }}
+          releaseName: lovshot ${{ github.ref_name }}
           releaseBody: "See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details."
           releaseDraft: false
           prerelease: false

@@ -64,7 +64,13 @@ impl Screen {
     /// Capture a specific area of the screen
     /// Note: x, y, width, height are in logical pixels (CSS pixels)
     /// xcap returns physical pixels, so we scale by scale_factor
-    pub fn capture_area(&self, x: i32, y: i32, width: u32, height: u32) -> Result<RgbaImage, String> {
+    pub fn capture_area(
+        &self,
+        x: i32,
+        y: i32,
+        width: u32,
+        height: u32,
+    ) -> Result<RgbaImage, String> {
         // xcap's capture_image returns the full monitor in physical pixels
         let full = self.monitor.capture_image().map_err(|e| e.to_string())?;
 

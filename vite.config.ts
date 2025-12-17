@@ -15,6 +15,7 @@ export default defineConfig(async () => ({
     rollupOptions: {
       input: {
         main: resolve(__dirname, "index.html"),
+        editor: resolve(__dirname, "editor.html"),
         selector: resolve(__dirname, "selector.html"),
         overlay: resolve(__dirname, "overlay.html"),
         scrollOverlay: resolve(__dirname, "scroll-overlay.html"),

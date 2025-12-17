@@ -1,5 +1,5 @@
-use base64::{Engine, engine::general_purpose::STANDARD};
 use crate::capture::Screen;
+use base64::{engine::general_purpose::STANDARD, Engine};
 
 #[tauri::command]
 pub fn get_screens() -> Vec<serde_json::Value> {
@@ -32,12 +32,14 @@ pub fn capture_screenshot() -> Result<String, String> {
     use image::ImageEncoder;
     let mut png_data = Vec::new();
     let encoder = image::codecs::png::PngEncoder::new(&mut png_data);
-    encoder.write_image(
-        img.as_raw(),
-        img.width(),
-        img.height(),
-        image::ExtendedColorType::Rgba8,
-    ).map_err(|e| e.to_string())?;
+    encoder
+        .write_image(
+            img.as_raw(),
+            img.width(),
+            img.height(),
+            image::ExtendedColorType::Rgba8,
+        )
+        .map_err(|e| e.to_string())?;
 
     let base64_str = STANDARD.encode(&png_data);
     Ok(format!("data:image/png;base64,{}", base64_str))

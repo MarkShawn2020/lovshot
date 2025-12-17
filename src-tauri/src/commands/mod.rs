@@ -1,15 +1,15 @@
-mod mouse;
-mod screen;
-mod selector;
 mod config;
-mod recording;
 mod export;
+mod mouse;
+mod recording;
+mod screen;
 mod scroll;
+mod selector;
 
-pub use mouse::*;
-pub use screen::*;
-pub use selector::*;
 pub use config::*;
-pub use recording::*;
 pub use export::*;
+pub use mouse::*;
+pub use recording::*;
+pub use screen::*;
 pub use scroll::*;
+pub use selector::*;

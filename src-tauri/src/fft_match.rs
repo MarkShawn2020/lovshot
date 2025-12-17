@@ -4,7 +4,7 @@
 
 use image::RgbaImage;
 use num_complex::Complex;
-use rustfft::{FftPlanner, Fft};
+use rustfft::{Fft, FftPlanner};
 use std::sync::Arc;
 
 /// Result of template matching
@@ -38,7 +38,14 @@ pub fn detect_scroll_delta_fft(prev: &RgbaImage, curr: &RgbaImage) -> i32 {
     let template_y = h / 2 - strip_height / 2;
 
     // Check if frames are nearly identical (no scroll)
-    let no_scroll_diff = compute_strip_diff(&prev_gray, &curr_gray, template_y, template_y, w, strip_height);
+    let no_scroll_diff = compute_strip_diff(
+        &prev_gray,
+        &curr_gray,
+        template_y,
+        template_y,
+        w,
+        strip_height,
+    );
     let pixel_count = (w * strip_height) as f32;
     let avg_diff = no_scroll_diff / pixel_count;
 
@@ -57,9 +64,12 @@ pub fn detect_scroll_delta_fft(prev: &RgbaImage, curr: &RgbaImage) -> i32 {
         // Scroll down: template from prev matches higher position in curr
         if template_y as i32 + offset < h as i32 - strip_height as i32 {
             let diff = compute_strip_diff(
-                &prev_gray, &curr_gray,
-                template_y, (template_y as i32 + offset) as u32,
-                w, strip_height
+                &prev_gray,
+                &curr_gray,
+                template_y,
+                (template_y as i32 + offset) as u32,
+                w,
+                strip_height,
             );
             if diff < best_score {
                 best_score = diff;
@@ -70,9 +80,12 @@ pub fn detect_scroll_delta_fft(prev: &RgbaImage, curr: &RgbaImage) -> i32 {
         // Scroll up: template from prev matches lower position in curr
         if template_y as i32 - offset >= 0 {
             let diff = compute_strip_diff(
-                &prev_gray, &curr_gray,
-                template_y, (template_y as i32 - offset) as u32,
-                w, strip_height
+                &prev_gray,
+                &curr_gray,
+                template_y,
+                (template_y as i32 - offset) as u32,
+                w,
+                strip_height,
             );
             if diff < best_score {
                 best_score = diff;
@@ -95,9 +108,12 @@ pub fn detect_scroll_delta_fft(prev: &RgbaImage, curr: &RgbaImage) -> i32 {
 
         if search_y >= 0 && search_y < h as i32 - strip_height as i32 {
             let diff = compute_strip_diff(
-                &prev_gray, &curr_gray,
-                template_y, search_y as u32,
-                w, strip_height
+                &prev_gray,
+                &curr_gray,
+                template_y,
+                search_y as u32,
+                w,
+                strip_height,
             );
             if diff < best_score {
                 best_score = diff;
@@ -122,8 +138,16 @@ pub fn detect_scroll_delta_fft(prev: &RgbaImage, curr: &RgbaImage) -> i32 {
         (h * 3 / 4).max(template_y + strip_height)
     };
 
-    let verify_search_y = (verify_y as i32 + best_offset).clamp(0, h as i32 - strip_height as i32) as u32;
-    let verify_diff = compute_strip_diff(&prev_gray, &curr_gray, verify_y, verify_search_y, w, strip_height);
+    let verify_search_y =
+        (verify_y as i32 + best_offset).clamp(0, h as i32 - strip_height as i32) as u32;
+    let verify_diff = compute_strip_diff(
+        &prev_gray,
+        &curr_gray,
+        verify_y,
+        verify_search_y,
+        w,
+        strip_height,
+    );
     let verify_avg = verify_diff / pixel_count;
 
     // If verification strip also matches well, we're confident
@@ -215,7 +239,8 @@ pub fn ncc_fft_1d(template: &[f32], search: &[f32]) -> (i32, f32) {
     fft.process(&mut search_fft);
 
     // Multiply in frequency domain (convolution)
-    let mut result: Vec<Complex<f32>> = template_fft.iter()
+    let mut result: Vec<Complex<f32>> = template_fft
+        .iter()
         .zip(search_fft.iter())
         .map(|(a, b)| a * b)
         .collect();

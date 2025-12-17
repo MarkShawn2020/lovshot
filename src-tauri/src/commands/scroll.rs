@@ -1,10 +1,10 @@
 use std::path::PathBuf;
 
+use crate::capture::Screen;
 use base64::{engine::general_purpose::STANDARD, Engine};
 use image::codecs::jpeg::JpegEncoder;
 use image::ExtendedColorType;
 use image::{DynamicImage, GenericImage, RgbaImage};
-use crate::capture::Screen;
 use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 

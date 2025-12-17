@@ -1,6 +1,6 @@
-use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut};
 use tauri::AppHandle;
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
+use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut};
 
 use crate::config;
 use crate::types::CaptureMode;
@@ -65,7 +65,11 @@ pub fn parse_shortcut(s: &str) -> Result<Shortcut, String> {
         }
     }
 
-    let mods = if modifiers.is_empty() { None } else { Some(modifiers) };
+    let mods = if modifiers.is_empty() {
+        None
+    } else {
+        Some(modifiers)
+    };
     Ok(Shortcut::new(mods, key_code))
 }
 
@@ -96,12 +100,12 @@ pub fn get_action_for_shortcut(shortcut: &Shortcut) -> Option<CaptureMode> {
 /// Format shortcut for display (e.g., "Alt+A" -> "⌥A")
 pub fn format_shortcut_display(s: &str) -> String {
     s.replace("Alt+", "⌥")
-     .replace("Ctrl+", "⌃")
-     .replace("Shift+", "⇧")
-     .replace("Cmd+", "⌘")
-     .replace("Command+", "⌘")
-     .replace("Super+", "⌘")
-     .replace("Meta+", "⌘")
+        .replace("Ctrl+", "⌃")
+        .replace("Shift+", "⇧")
+        .replace("Cmd+", "⌘")
+        .replace("Command+", "⌘")
+        .replace("Super+", "⌘")
+        .replace("Meta+", "⌘")
 }
 
 /// Register shortcuts from config (called at startup and when config changes)
@@ -121,7 +125,10 @@ pub fn register_shortcuts_from_config(app: &AppHandle) -> Result<(), String> {
         match parse_shortcut(&shortcut_str) {
             Ok(shortcut) => {
                 if let Err(e) = app.global_shortcut().register(shortcut) {
-                    eprintln!("[shortcuts] Failed to register {} ({}): {}", action, shortcut_str, e);
+                    eprintln!(
+                        "[shortcuts] Failed to register {} ({}): {}",
+                        action, shortcut_str, e
+                    );
                 } else {
                     println!("[shortcuts] Registered {} -> {}", action, shortcut_str);
                 }

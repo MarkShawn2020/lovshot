@@ -2,7 +2,9 @@ use core_foundation::base::{CFType, TCFType};
 use core_foundation::dictionary::CFDictionaryRef;
 use core_foundation::number::CFNumber;
 use core_foundation::string::CFString;
-use core_graphics::display::{CGWindowListCopyWindowInfo, kCGWindowListOptionOnScreenOnly, kCGNullWindowID};
+use core_graphics::display::{
+    kCGNullWindowID, kCGWindowListOptionOnScreenOnly, CGWindowListCopyWindowInfo,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::Region;
@@ -21,10 +23,8 @@ pub struct WindowInfo {
 /// Returns None if no window found or on error
 pub fn get_window_at_position(x: f64, y: f64) -> Option<Region> {
     unsafe {
-        let window_list = CGWindowListCopyWindowInfo(
-            kCGWindowListOptionOnScreenOnly,
-            kCGNullWindowID,
-        );
+        let window_list =
+            CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly, kCGNullWindowID);
 
         if window_list.is_null() {
             return None;
@@ -37,7 +37,9 @@ pub fn get_window_at_position(x: f64, y: f64) -> Option<Region> {
         // Second pass: Dock (layer 20) - only if no normal window matched
         for target_layer in [0, 20] {
             for i in 0..windows.len() {
-                let Some(window) = windows.get(i) else { continue };
+                let Some(window) = windows.get(i) else {
+                    continue;
+                };
                 let dict_ref = window.as_CFTypeRef() as CFDictionaryRef;
 
                 // Get window layer
@@ -76,10 +78,18 @@ pub fn get_window_at_position(x: f64, y: f64) -> Option<Region> {
                 let width_key = CFString::new("Width");
                 let height_key = CFString::new("Height");
 
-                let Some(win_x) = get_number_from_dict(bounds_dict, &x_key) else { continue };
-                let Some(win_y) = get_number_from_dict(bounds_dict, &y_key) else { continue };
-                let Some(win_w) = get_number_from_dict(bounds_dict, &width_key) else { continue };
-                let Some(win_h) = get_number_from_dict(bounds_dict, &height_key) else { continue };
+                let Some(win_x) = get_number_from_dict(bounds_dict, &x_key) else {
+                    continue;
+                };
+                let Some(win_y) = get_number_from_dict(bounds_dict, &y_key) else {
+                    continue;
+                };
+                let Some(win_w) = get_number_from_dict(bounds_dict, &width_key) else {
+                    continue;
+                };
+                let Some(win_h) = get_number_from_dict(bounds_dict, &height_key) else {
+                    continue;
+                };
 
                 // For Dock (layer 20), use actual visible region from visibleFrame
                 if layer == 20 {
@@ -114,8 +124,8 @@ pub fn get_window_at_position(x: f64, y: f64) -> Option<Region> {
 
 /// Get Dock's actual visible region using NSScreen frame vs visibleFrame
 fn get_dock_region() -> Option<Region> {
-    use objc::{class, msg_send, sel, sel_impl};
     use core_graphics::geometry::CGRect;
+    use objc::{class, msg_send, sel, sel_impl};
 
     unsafe {
         let ns_screen_class = class!(NSScreen);
@@ -170,10 +180,8 @@ fn get_dock_region() -> Option<Region> {
 }
 
 unsafe fn get_number_from_dict(dict: CFDictionaryRef, key: &CFString) -> Option<f64> {
-    let ptr = core_foundation::dictionary::CFDictionaryGetValue(
-        dict,
-        key.as_CFTypeRef() as *const _,
-    );
+    let ptr =
+        core_foundation::dictionary::CFDictionaryGetValue(dict, key.as_CFTypeRef() as *const _);
     if ptr.is_null() {
         return None;
     }
@@ -185,10 +193,8 @@ unsafe fn get_number_from_dict(dict: CFDictionaryRef, key: &CFString) -> Option<
 /// Returns None if no window found
 pub fn get_window_pid_at_position(x: f64, y: f64) -> Option<i32> {
     unsafe {
-        let window_list = CGWindowListCopyWindowInfo(
-            kCGWindowListOptionOnScreenOnly,
-            kCGNullWindowID,
-        );
+        let window_list =
+            CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly, kCGNullWindowID);
 
         if window_list.is_null() {
             return None;
@@ -198,7 +204,9 @@ pub fn get_window_pid_at_position(x: f64, y: f64) -> Option<i32> {
             core_foundation::array::CFArray::wrap_under_get_rule(window_list as _);
 
         for i in 0..windows.len() {
-            let Some(window) = windows.get(i) else { continue };
+            let Some(window) = windows.get(i) else {
+                continue;
+            };
             let dict_ref = window.as_CFTypeRef() as CFDictionaryRef;
 
             // Get window layer - only consider normal windows (layer 0)
@@ -237,10 +245,18 @@ pub fn get_window_pid_at_position(x: f64, y: f64) -> Option<i32> {
             let width_key = CFString::new("Width");
             let height_key = CFString::new("Height");
 
-            let Some(win_x) = get_number_from_dict(bounds_dict, &x_key) else { continue };
-            let Some(win_y) = get_number_from_dict(bounds_dict, &y_key) else { continue };
-            let Some(win_w) = get_number_from_dict(bounds_dict, &width_key) else { continue };
-            let Some(win_h) = get_number_from_dict(bounds_dict, &height_key) else { continue };
+            let Some(win_x) = get_number_from_dict(bounds_dict, &x_key) else {
+                continue;
+            };
+            let Some(win_y) = get_number_from_dict(bounds_dict, &y_key) else {
+                continue;
+            };
+            let Some(win_w) = get_number_from_dict(bounds_dict, &width_key) else {
+                continue;
+            };
+            let Some(win_h) = get_number_from_dict(bounds_dict, &height_key) else {
+                continue;
+            };
 
             // Check if cursor is inside this window
             if x >= win_x && x < win_x + win_w && y >= win_y && y < win_y + win_h {
@@ -310,7 +326,11 @@ fn get_app_name_from_pid(pid: i32) -> Option<String> {
             return None;
         }
 
-        Some(std::ffi::CStr::from_ptr(utf8).to_string_lossy().into_owned())
+        Some(
+            std::ffi::CStr::from_ptr(utf8)
+                .to_string_lossy()
+                .into_owned(),
+        )
     }
 }
 
@@ -416,17 +436,28 @@ fn try_ax_detection(pid: i32, win_bounds: (f64, f64, f64, f64)) -> Option<u32> {
             core_foundation::array::CFArray::wrap_under_create_rule(windows_ref as _);
 
         for i in 0..windows.len() {
-            let Some(window) = windows.get(i) else { continue };
+            let Some(window) = windows.get(i) else {
+                continue;
+            };
             let window_ref = window.as_CFTypeRef() as AXUIElementRef;
 
             // Get window position
             let mut position_ref: core_foundation::base::CFTypeRef = ptr::null();
             let pos_attr = core_foundation::string::CFString::new("AXPosition");
-            if AXUIElementCopyAttributeValue(window_ref, pos_attr.as_concrete_TypeRef(), &mut position_ref) != 0 {
+            if AXUIElementCopyAttributeValue(
+                window_ref,
+                pos_attr.as_concrete_TypeRef(),
+                &mut position_ref,
+            ) != 0
+            {
                 continue;
             }
             let mut point = core_graphics::geometry::CGPoint { x: 0.0, y: 0.0 };
-            if !AXValueGetValue(position_ref as AXValueRef, AX_VALUE_CG_POINT_TYPE, &mut point as *mut _ as *mut _) {
+            if !AXValueGetValue(
+                position_ref as AXValueRef,
+                AX_VALUE_CG_POINT_TYPE,
+                &mut point as *mut _ as *mut _,
+            ) {
                 core_foundation::base::CFRelease(position_ref);
                 continue;
             }
@@ -435,11 +466,23 @@ fn try_ax_detection(pid: i32, win_bounds: (f64, f64, f64, f64)) -> Option<u32> {
             // Get window size
             let mut size_ref: core_foundation::base::CFTypeRef = ptr::null();
             let size_attr = core_foundation::string::CFString::new("AXSize");
-            if AXUIElementCopyAttributeValue(window_ref, size_attr.as_concrete_TypeRef(), &mut size_ref) != 0 {
+            if AXUIElementCopyAttributeValue(
+                window_ref,
+                size_attr.as_concrete_TypeRef(),
+                &mut size_ref,
+            ) != 0
+            {
                 continue;
             }
-            let mut size = core_graphics::geometry::CGSize { width: 0.0, height: 0.0 };
-            if !AXValueGetValue(size_ref as AXValueRef, AX_VALUE_CG_SIZE_TYPE, &mut size as *mut _ as *mut _) {
+            let mut size = core_graphics::geometry::CGSize {
+                width: 0.0,
+                height: 0.0,
+            };
+            if !AXValueGetValue(
+                size_ref as AXValueRef,
+                AX_VALUE_CG_SIZE_TYPE,
+                &mut size as *mut _ as *mut _,
+            ) {
                 core_foundation::base::CFRelease(size_ref);
                 continue;
             }
@@ -489,7 +532,12 @@ unsafe fn find_content_top_recursive(
     let children_attr = core_foundation::string::CFString::new("AXChildren");
 
     let mut children_ref: core_foundation::base::CFTypeRef = ptr::null();
-    if AXUIElementCopyAttributeValue(element, children_attr.as_concrete_TypeRef(), &mut children_ref) != 0 {
+    if AXUIElementCopyAttributeValue(
+        element,
+        children_attr.as_concrete_TypeRef(),
+        &mut children_ref,
+    ) != 0
+    {
         return None;
     }
 
@@ -500,11 +548,15 @@ unsafe fn find_content_top_recursive(
     let mut best_content_top: Option<f64> = None;
 
     for j in 0..children.len() {
-        let Some(child) = children.get(j) else { continue };
+        let Some(child) = children.get(j) else {
+            continue;
+        };
         let child_ref = child.as_CFTypeRef() as AXUIElementRef;
 
         let mut role_ref: core_foundation::base::CFTypeRef = ptr::null();
-        if AXUIElementCopyAttributeValue(child_ref, role_attr.as_concrete_TypeRef(), &mut role_ref) != 0 {
+        if AXUIElementCopyAttributeValue(child_ref, role_attr.as_concrete_TypeRef(), &mut role_ref)
+            != 0
+        {
             continue;
         }
         let role_str: core_foundation::string::CFString =
@@ -513,15 +565,30 @@ unsafe fn find_content_top_recursive(
 
         let mut pos_ref: core_foundation::base::CFTypeRef = ptr::null();
         let mut child_point = core_graphics::geometry::CGPoint { x: 0.0, y: 0.0 };
-        if AXUIElementCopyAttributeValue(child_ref, pos_attr.as_concrete_TypeRef(), &mut pos_ref) == 0 {
-            AXValueGetValue(pos_ref as AXValueRef, AX_VALUE_CG_POINT_TYPE, &mut child_point as *mut _ as *mut _);
+        if AXUIElementCopyAttributeValue(child_ref, pos_attr.as_concrete_TypeRef(), &mut pos_ref)
+            == 0
+        {
+            AXValueGetValue(
+                pos_ref as AXValueRef,
+                AX_VALUE_CG_POINT_TYPE,
+                &mut child_point as *mut _ as *mut _,
+            );
             core_foundation::base::CFRelease(pos_ref);
         }
 
         let mut size_ref: core_foundation::base::CFTypeRef = ptr::null();
-        let mut child_size = core_graphics::geometry::CGSize { width: 0.0, height: 0.0 };
-        if AXUIElementCopyAttributeValue(child_ref, size_attr.as_concrete_TypeRef(), &mut size_ref) == 0 {
-            AXValueGetValue(size_ref as AXValueRef, AX_VALUE_CG_SIZE_TYPE, &mut child_size as *mut _ as *mut _);
+        let mut child_size = core_graphics::geometry::CGSize {
+            width: 0.0,
+            height: 0.0,
+        };
+        if AXUIElementCopyAttributeValue(child_ref, size_attr.as_concrete_TypeRef(), &mut size_ref)
+            == 0
+        {
+            AXValueGetValue(
+                size_ref as AXValueRef,
+                AX_VALUE_CG_SIZE_TYPE,
+                &mut child_size as *mut _ as *mut _,
+            );
             core_foundation::base::CFRelease(size_ref);
         }
 
@@ -561,10 +628,8 @@ unsafe fn find_content_top_recursive(
 /// Get window info at cursor position including titlebar height
 pub fn get_window_info_at_position(x: f64, y: f64) -> Option<WindowInfo> {
     unsafe {
-        let window_list = CGWindowListCopyWindowInfo(
-            kCGWindowListOptionOnScreenOnly,
-            kCGNullWindowID,
-        );
+        let window_list =
+            CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly, kCGNullWindowID);
 
         if window_list.is_null() {
             return None;
@@ -575,7 +640,9 @@ pub fn get_window_info_at_position(x: f64, y: f64) -> Option<WindowInfo> {
 
         // First pass: normal windows only (layer 0)
         for i in 0..windows.len() {
-            let Some(window) = windows.get(i) else { continue };
+            let Some(window) = windows.get(i) else {
+                continue;
+            };
             let dict_ref = window.as_CFTypeRef() as CFDictionaryRef;
 
             // Get window layer
@@ -614,10 +681,18 @@ pub fn get_window_info_at_position(x: f64, y: f64) -> Option<WindowInfo> {
             let width_key = CFString::new("Width");
             let height_key = CFString::new("Height");
 
-            let Some(win_x) = get_number_from_dict(bounds_dict, &x_key) else { continue };
-            let Some(win_y) = get_number_from_dict(bounds_dict, &y_key) else { continue };
-            let Some(win_w) = get_number_from_dict(bounds_dict, &width_key) else { continue };
-            let Some(win_h) = get_number_from_dict(bounds_dict, &height_key) else { continue };
+            let Some(win_x) = get_number_from_dict(bounds_dict, &x_key) else {
+                continue;
+            };
+            let Some(win_y) = get_number_from_dict(bounds_dict, &y_key) else {
+                continue;
+            };
+            let Some(win_w) = get_number_from_dict(bounds_dict, &width_key) else {
+                continue;
+            };
+            let Some(win_h) = get_number_from_dict(bounds_dict, &height_key) else {
+                continue;
+            };
 
             // Check if cursor is inside this window
             if x >= win_x && x < win_x + win_w && y >= win_y && y < win_y + win_h {
@@ -659,10 +734,8 @@ pub fn activate_window_at_position(x: f64, y: f64) -> bool {
     use objc::{class, msg_send, sel, sel_impl};
 
     unsafe {
-        let window_list = CGWindowListCopyWindowInfo(
-            kCGWindowListOptionOnScreenOnly,
-            kCGNullWindowID,
-        );
+        let window_list =
+            CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly, kCGNullWindowID);
 
         if window_list.is_null() {
             return false;
@@ -672,7 +745,9 @@ pub fn activate_window_at_position(x: f64, y: f64) -> bool {
             core_foundation::array::CFArray::wrap_under_get_rule(window_list as _);
 
         for i in 0..windows.len() {
-            let Some(window) = windows.get(i) else { continue };
+            let Some(window) = windows.get(i) else {
+                continue;
+            };
             let dict_ref = window.as_CFTypeRef() as CFDictionaryRef;
 
             // Get window layer - only consider normal windows (layer 0)
@@ -711,10 +786,18 @@ pub fn activate_window_at_position(x: f64, y: f64) -> bool {
             let width_key = CFString::new("Width");
             let height_key = CFString::new("Height");
 
-            let Some(win_x) = get_number_from_dict(bounds_dict, &x_key) else { continue };
-            let Some(win_y) = get_number_from_dict(bounds_dict, &y_key) else { continue };
-            let Some(win_w) = get_number_from_dict(bounds_dict, &width_key) else { continue };
-            let Some(win_h) = get_number_from_dict(bounds_dict, &height_key) else { continue };
+            let Some(win_x) = get_number_from_dict(bounds_dict, &x_key) else {
+                continue;
+            };
+            let Some(win_y) = get_number_from_dict(bounds_dict, &y_key) else {
+                continue;
+            };
+            let Some(win_w) = get_number_from_dict(bounds_dict, &width_key) else {
+                continue;
+            };
+            let Some(win_h) = get_number_from_dict(bounds_dict, &height_key) else {
+                continue;
+            };
 
             // Check if cursor is inside this window
             if x >= win_x && x < win_x + win_w && y >= win_y && y < win_y + win_h {
@@ -730,7 +813,9 @@ pub fn activate_window_at_position(x: f64, y: f64) -> bool {
                 }
 
                 let pid_num: CFNumber = CFNumber::wrap_under_get_rule(pid_ptr as _);
-                let Some(pid) = pid_num.to_i32() else { return false };
+                let Some(pid) = pid_num.to_i32() else {
+                    return false;
+                };
 
                 // Activate the application using NSRunningApplication
                 let workspace_class = class!(NSRunningApplication);

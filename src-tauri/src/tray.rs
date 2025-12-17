@@ -1,6 +1,6 @@
 use crate::capture::Screen;
-use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewWindowBuilder, WebviewUrl};
 use tauri::image::Image as TauriImage;
+use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindowBuilder};
 
 use crate::types::Region;
 
@@ -82,11 +82,9 @@ pub fn create_recording_overlay(app: &AppHandle, region: &Region, static_mode: b
         #[cfg(target_os = "macos")]
         {
             use objc::{msg_send, sel, sel_impl};
-            let _ = win.with_webview(|webview| {
-                unsafe {
-                    let ns_window = webview.ns_window() as *mut objc::runtime::Object;
-                    let _: () = msg_send![ns_window, setLevel: 1000_i64];
-                }
+            let _ = win.with_webview(|webview| unsafe {
+                let ns_window = webview.ns_window() as *mut objc::runtime::Object;
+                let _: () = msg_send![ns_window, setLevel: 1000_i64];
             });
         }
     }

@@ -1,6 +1,6 @@
 use crate::capture::Screen;
-use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewWindowBuilder, WebviewUrl};
 use mouse_position::mouse_position::Mouse;
+use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindowBuilder};
 
 use crate::state::SharedState;
 use crate::types::{CaptureMode, Region};
@@ -27,7 +27,11 @@ pub fn open_selector(app: AppHandle, state: tauri::State<SharedState>) -> Result
     let pending_mode = s.pending_mode;
     drop(s);
 
-    let should_hide = !has_frames && matches!(pending_mode, Some(CaptureMode::Gif) | Some(CaptureMode::Video));
+    let should_hide = !has_frames
+        && matches!(
+            pending_mode,
+            Some(CaptureMode::Gif) | Some(CaptureMode::Video)
+        );
     if should_hide {
         if let Some(main_win) = app.get_webview_window("main") {
             println!("[DEBUG][open_selector] GIF/Video 模式，隐藏主窗口");
@@ -76,12 +80,14 @@ pub fn open_selector(app: AppHandle, state: tauri::State<SharedState>) -> Result
     let physical_x = (screen_x as f32 * scale) as i32;
     let physical_y = (screen_y as f32 * scale) as i32;
 
-    win.set_size(PhysicalSize::new(physical_width, physical_height)).map_err(|e| e.to_string())?;
-    win.set_position(PhysicalPosition::new(physical_x, physical_y)).map_err(|e| e.to_string())?;
+    win.set_size(PhysicalSize::new(physical_width, physical_height))
+        .map_err(|e| e.to_string())?;
+    win.set_position(PhysicalPosition::new(physical_x, physical_y))
+        .map_err(|e| e.to_string())?;
 
     #[cfg(target_os = "macos")]
     {
-        use objc::{msg_send, sel, sel_impl, class};
+        use objc::{class, msg_send, sel, sel_impl};
         let _ = win.with_webview(|webview| {
             unsafe {
                 let ns_window = webview.ns_window() as *mut objc::runtime::Object;
@@ -90,7 +96,8 @@ pub fn open_selector(app: AppHandle, state: tauri::State<SharedState>) -> Result
                 let _: () = msg_send![ns_window, setIgnoresMouseEvents: false];
                 // Set a minimal background color to capture mouse events
                 let ns_color_class = class!(NSColor);
-                let clear_color: *mut objc::runtime::Object = msg_send![ns_color_class, colorWithWhite:0.0_f64 alpha:0.005_f64];
+                let clear_color: *mut objc::runtime::Object =
+                    msg_send![ns_color_class, colorWithWhite:0.0_f64 alpha:0.005_f64];
                 let _: () = msg_send![ns_window, setBackgroundColor: clear_color];
             }
         });
@@ -101,7 +108,10 @@ pub fn open_selector(app: AppHandle, state: tauri::State<SharedState>) -> Result
 
 #[tauri::command]
 pub fn set_region(state: tauri::State<SharedState>, region: Region) {
-    println!("[DEBUG][set_region] ====== 被调用 ====== x={}, y={}, w={}, h={}", region.x, region.y, region.width, region.height);
+    println!(
+        "[DEBUG][set_region] ====== 被调用 ====== x={}, y={}, w={}, h={}",
+        region.x, region.y, region.width, region.height
+    );
     let mut s = state.lock().unwrap();
     println!("[DEBUG][set_region] 直接使用逻辑像素坐标（不缩放）");
     s.region = Some(region);
@@ -179,7 +189,11 @@ pub fn open_selector_internal(app: AppHandle) -> Result<(), String> {
     let pending_mode = s.pending_mode;
     drop(s);
 
-    let should_hide = !has_frames && matches!(pending_mode, Some(CaptureMode::Gif) | Some(CaptureMode::Video));
+    let should_hide = !has_frames
+        && matches!(
+            pending_mode,
+            Some(CaptureMode::Gif) | Some(CaptureMode::Video)
+        );
     if should_hide {
         if let Some(main_win) = app.get_webview_window("main") {
             let _ = main_win.hide();
@@ -224,17 +238,17 @@ pub fn open_selector_internal(app: AppHandle) -> Result<(), String> {
     let physical_x = (screen_x as f32 * scale) as i32;
     let physical_y = (screen_y as f32 * scale) as i32;
 
-    win.set_size(PhysicalSize::new(physical_width, physical_height)).map_err(|e| e.to_string())?;
-    win.set_position(PhysicalPosition::new(physical_x, physical_y)).map_err(|e| e.to_string())?;
+    win.set_size(PhysicalSize::new(physical_width, physical_height))
+        .map_err(|e| e.to_string())?;
+    win.set_position(PhysicalPosition::new(physical_x, physical_y))
+        .map_err(|e| e.to_string())?;
 
     #[cfg(target_os = "macos")]
     {
         use objc::{msg_send, sel, sel_impl};
-        let _ = win.with_webview(|webview| {
-            unsafe {
-                let ns_window = webview.ns_window() as *mut objc::runtime::Object;
-                let _: () = msg_send![ns_window, setLevel: 1000_i64];
-            }
+        let _ = win.with_webview(|webview| unsafe {
+            let ns_window = webview.ns_window() as *mut objc::runtime::Object;
+            let _: () = msg_send![ns_window, setLevel: 1000_i64];
         });
     }
 

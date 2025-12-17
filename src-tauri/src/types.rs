@@ -29,9 +29,9 @@ pub struct ExportConfig {
     pub target_fps: u32,
     pub loop_mode: String, // "infinite", "once", "pingpong"
     #[serde(default = "default_quality")]
-    pub quality: u32,      // encoding quality (1-100, higher = better quality but slower)
+    pub quality: u32, // encoding quality (1-100, higher = better quality but slower)
     #[serde(default = "default_speed")]
-    pub speed: f32,        // playback speed (affects duration, not frame count)
+    pub speed: f32, // playback speed (affects duration, not frame count)
     pub output_path: Option<String>, // custom output path from Finder dialog
 }
 

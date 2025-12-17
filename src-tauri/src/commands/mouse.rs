@@ -1,5 +1,5 @@
-use mouse_position::mouse_position::Mouse;
 use crate::state::SharedState;
+use mouse_position::mouse_position::Mouse;
 
 #[tauri::command]
 pub fn get_mouse_position(state: tauri::State<SharedState>) -> Option<(f32, f32)> {

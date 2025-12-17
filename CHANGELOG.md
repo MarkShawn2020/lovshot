@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.13.6
+
+### Patch Changes
+
+- 修复关于页面版本号硬编码问题，现从配置动态读取
+
 ## 0.13.5
 
 ### Patch Changes

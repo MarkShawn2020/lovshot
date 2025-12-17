@@ -4,14 +4,27 @@ use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, Webv
 
 use crate::state::SharedState;
 use crate::types::{CaptureMode, Region, WindowInfo};
-use crate::windows::set_activation_policy;
+use crate::windows::{open_permission_window, set_activation_policy};
 
 #[cfg(target_os = "macos")]
 use crate::window_detect;
 
+#[cfg(target_os = "macos")]
+use crate::permission;
+
 #[tauri::command]
 pub fn open_selector(app: AppHandle, state: tauri::State<SharedState>) -> Result<(), String> {
     println!("[DEBUG][open_selector] 入口");
+
+    // Check screen recording permission first (macOS only)
+    #[cfg(target_os = "macos")]
+    {
+        if !permission::has_screen_recording_permission() {
+            println!("[DEBUG][open_selector] 无屏幕录制权限，打开权限窗口");
+            let _ = open_permission_window(&app);
+            return Ok(());
+        }
+    }
 
     if let Some(win) = app.get_webview_window("selector") {
         println!("[DEBUG][open_selector] selector 窗口已存在，跳过");
@@ -182,6 +195,16 @@ pub fn activate_window_under_cursor() -> bool {
 /// Internal function to open selector (called from shortcut handler)
 pub fn open_selector_internal(app: AppHandle) -> Result<(), String> {
     println!("[DEBUG][open_selector_internal] 入口");
+
+    // Check screen recording permission first (macOS only)
+    #[cfg(target_os = "macos")]
+    {
+        if !permission::has_screen_recording_permission() {
+            println!("[DEBUG][open_selector_internal] 无屏幕录制权限，打开权限窗口");
+            let _ = open_permission_window(&app);
+            return Ok(());
+        }
+    }
 
     if let Some(win) = app.get_webview_window("selector") {
         println!("[DEBUG][open_selector_internal] selector 窗口已存在，跳过");

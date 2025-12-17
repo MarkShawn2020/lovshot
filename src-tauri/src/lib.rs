@@ -261,16 +261,18 @@ pub fn run() {
             }
 
             // Check screen recording permission on startup (macOS only)
+            // CGRequestScreenCaptureAccess() shows system dialog if user hasn't decided yet,
+            // but always returns false immediately (before user responds).
+            // We only show our custom window if preflight() returns false AND
+            // we know the user has already seen the system dialog (i.e., second+ launch).
             #[cfg(target_os = "macos")]
             {
                 if !permission::has_screen_recording_permission() {
-                    // Request permission - this triggers system dialog
+                    // This triggers system dialog on first run (non-blocking, returns false immediately)
+                    // On subsequent runs, returns false without dialog if denied
                     let _ = permission::request_screen_recording_permission();
-
-                    // Still no permission? Show our custom permission window
-                    if !permission::has_screen_recording_permission() {
-                        let _ = open_permission_window(app.handle());
-                    }
+                    // Don't show our custom window here - system dialog handles it
+                    // User will see our window when they try to capture if still no permission
                 }
             }
 

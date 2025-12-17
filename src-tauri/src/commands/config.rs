@@ -4,6 +4,7 @@ use tauri_plugin_global_shortcut::GlobalShortcutExt;
 use crate::config::{self, AppConfig, ShortcutConfig};
 use crate::shortcuts::register_shortcuts_from_config;
 use crate::state::SharedState;
+use crate::tray::update_tray_menu;
 
 #[tauri::command]
 pub fn get_shortcuts_config() -> AppConfig {
@@ -21,6 +22,7 @@ pub fn save_shortcut(
 
     let new_config = config::update_shortcut(&action, shortcut)?;
     register_shortcuts_from_config(&app)?;
+    update_tray_menu(&app);
 
     Ok(new_config)
 }
@@ -30,8 +32,18 @@ pub fn reset_shortcuts_to_default(app: AppHandle) -> Result<AppConfig, String> {
     let config = AppConfig::default();
     config::save_config(&config)?;
     register_shortcuts_from_config(&app)?;
+    update_tray_menu(&app);
 
     Ok(config)
+}
+
+#[tauri::command]
+pub fn set_developer_mode(app: AppHandle, enabled: bool) -> Result<AppConfig, String> {
+    let mut cfg = config::load_config();
+    cfg.developer_mode = enabled;
+    config::save_config(&cfg)?;
+    update_tray_menu(&app);
+    Ok(cfg)
 }
 
 #[tauri::command]

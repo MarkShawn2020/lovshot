@@ -36,8 +36,9 @@ pub fn open_settings_window(app: AppHandle) -> Result<(), String> {
 
     let win = WebviewWindowBuilder::new(&app, "settings", WebviewUrl::App("/settings.html".into()))
         .title("Lovshot Settings")
-        .inner_size(480.0, 400.0)
-        .resizable(false)
+        .inner_size(400.0, 380.0)
+        .min_inner_size(320.0, 300.0)
+        .resizable(true)
         .center()
         .focused(true)
         .build()

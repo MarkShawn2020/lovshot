@@ -493,102 +493,124 @@ pub struct HistoryItem {
     pub thumbnail: String, // base64 data URL
 }
 
-#[tauri::command]
-pub fn get_history(limit: Option<usize>) -> Result<Vec<HistoryItem>, String> {
-    let output_dir = dirs::picture_dir()
-        .or_else(|| dirs::home_dir())
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("lovshot");
+#[derive(serde::Serialize)]
+pub struct HistoryResponse {
+    pub items: Vec<HistoryItem>,
+    pub has_more: bool,
+}
 
-    if !output_dir.exists() {
-        return Ok(vec![]);
+struct FileInfo {
+    path: PathBuf,
+    filename: String,
+    file_type: String,
+    modified: u64,
+}
+
+fn generate_thumbnail(path: &PathBuf, file_type: &str) -> String {
+    match file_type {
+        "gif" => {
+            if let Ok(file) = File::open(path) {
+                if let Ok(mut decoder) = gif::DecodeOptions::new().read_info(file) {
+                    if let Ok(Some(frame)) = decoder.read_next_frame() {
+                        let w = frame.width as u32;
+                        let h = frame.height as u32;
+                        if let Some(img) = image::RgbaImage::from_raw(w, h, frame.buffer.to_vec()) {
+                            let thumb = image::imageops::thumbnail(&img, 120, 80);
+                            let mut buf = Vec::new();
+                            if thumb.write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Png).is_ok() {
+                                return format!("data:image/png;base64,{}", STANDARD.encode(&buf));
+                            }
+                        }
+                    }
+                }
+            }
+            String::new()
+        }
+        _ => {
+            if let Ok(img) = image::open(path) {
+                let thumb = img.thumbnail(120, 80);
+                let mut buf = Vec::new();
+                if thumb.write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Png).is_ok() {
+                    return format!("data:image/png;base64,{}", STANDARD.encode(&buf));
+                }
+            }
+            String::new()
+        }
     }
+}
 
-    let mut items: Vec<HistoryItem> = vec![];
-    let entries = std::fs::read_dir(&output_dir).map_err(|e| e.to_string())?;
+#[tauri::command]
+pub async fn get_history(offset: Option<usize>, limit: Option<usize>) -> Result<HistoryResponse, String> {
+    tokio::task::spawn_blocking(move || {
+        let output_dir = dirs::picture_dir()
+            .or_else(|| dirs::home_dir())
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("lovshot");
 
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if !path.is_file() {
-            continue;
+        if !output_dir.exists() {
+            return Ok(HistoryResponse { items: vec![], has_more: false });
         }
 
-        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-        let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
+        // Step 1: Collect file metadata only (no thumbnail generation)
+        let entries = std::fs::read_dir(&output_dir).map_err(|e| e.to_string())?;
+        let mut files: Vec<FileInfo> = vec![];
 
-        let file_type = match ext.to_lowercase().as_str() {
-            "png" | "jpg" | "jpeg" => "screenshot",
-            "gif" => "gif",
-            _ => continue,
-        };
-
-        let modified = entry.metadata()
-            .and_then(|m| m.modified())
-            .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs())
-            .unwrap_or(0);
-
-        // Generate thumbnail
-        let thumbnail = match file_type {
-            "gif" => {
-                // For GIF, extract first frame
-                if let Ok(file) = File::open(&path) {
-                    if let Ok(mut decoder) = gif::DecodeOptions::new().read_info(file) {
-                        if let Ok(Some(frame)) = decoder.read_next_frame() {
-                            let w = frame.width as u32;
-                            let h = frame.height as u32;
-                            if let Some(img) = image::RgbaImage::from_raw(w, h, frame.buffer.to_vec()) {
-                                let thumb = image::imageops::thumbnail(&img, 120, 80);
-                                let mut buf = Vec::new();
-                                if thumb.write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Png).is_ok() {
-                                    format!("data:image/png;base64,{}", STANDARD.encode(&buf))
-                                } else {
-                                    String::new()
-                                }
-                            } else {
-                                String::new()
-                            }
-                        } else {
-                            String::new()
-                        }
-                    } else {
-                        String::new()
-                    }
-                } else {
-                    String::new()
-                }
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
             }
-            _ => {
-                // For images
-                if let Ok(img) = image::open(&path) {
-                    let thumb = img.thumbnail(120, 80);
-                    let mut buf = Vec::new();
-                    if thumb.write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Png).is_ok() {
-                        format!("data:image/png;base64,{}", STANDARD.encode(&buf))
-                    } else {
-                        String::new()
-                    }
-                } else {
-                    String::new()
+
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
+
+            let file_type = match ext.to_lowercase().as_str() {
+                "png" | "jpg" | "jpeg" => "screenshot",
+                "gif" => "gif",
+                _ => continue,
+            };
+
+            let modified = entry.metadata()
+                .and_then(|m| m.modified())
+                .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs())
+                .unwrap_or(0);
+
+            files.push(FileInfo {
+                path,
+                filename,
+                file_type: file_type.to_string(),
+                modified,
+            });
+        }
+
+        // Step 2: Sort by modified time descending
+        files.sort_by(|a, b| b.modified.cmp(&a.modified));
+
+        // Step 3: Apply pagination
+        let offset = offset.unwrap_or(0);
+        let limit = limit.unwrap_or(12);
+        let total = files.len();
+        let has_more = offset + limit < total;
+
+        let page_files: Vec<_> = files.into_iter().skip(offset).take(limit).collect();
+
+        // Step 4: Generate thumbnails only for the paginated subset
+        let items: Vec<HistoryItem> = page_files
+            .into_iter()
+            .map(|f| {
+                let thumbnail = generate_thumbnail(&f.path, &f.file_type);
+                HistoryItem {
+                    path: f.path.to_string_lossy().to_string(),
+                    filename: f.filename,
+                    file_type: f.file_type,
+                    modified: f.modified,
+                    thumbnail,
                 }
-            }
-        };
+            })
+            .collect();
 
-        items.push(HistoryItem {
-            path: path.to_string_lossy().to_string(),
-            filename,
-            file_type: file_type.to_string(),
-            modified,
-            thumbnail,
-        });
-    }
-
-    // Sort by modified time descending (newest first)
-    items.sort_by(|a, b| b.modified.cmp(&a.modified));
-
-    // Apply limit
-    if let Some(limit) = limit {
-        items.truncate(limit);
-    }
-
-    Ok(items)
+        Ok(HistoryResponse { items, has_more })
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }

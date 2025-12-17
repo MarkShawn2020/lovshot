@@ -627,3 +627,10 @@ kbd {
   background: var(--primary);
   color: white;
 }
+
+.history-loader {
+  text-align: center;
+  padding: 1rem;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}

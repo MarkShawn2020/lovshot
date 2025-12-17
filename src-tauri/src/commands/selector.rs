@@ -3,7 +3,7 @@ use mouse_position::mouse_position::Mouse;
 use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindowBuilder};
 
 use crate::state::SharedState;
-use crate::types::{CaptureMode, Region};
+use crate::types::{CaptureMode, Region, WindowInfo};
 use crate::windows::set_activation_policy;
 
 #[cfg(target_os = "macos")]
@@ -142,11 +142,19 @@ pub fn get_window_at_cursor() -> Option<Region> {
 
 /// Get window info at cursor including titlebar height (for exclude-titlebar feature)
 #[tauri::command]
-pub fn get_window_info_at_cursor() -> Option<window_detect::WindowInfo> {
+pub fn get_window_info_at_cursor() -> Option<WindowInfo> {
     #[cfg(target_os = "macos")]
     {
         if let Mouse::Position { x, y } = Mouse::get_mouse_position() {
-            return window_detect::get_window_info_at_position(x as f64, y as f64);
+            if let Some(info) = window_detect::get_window_info_at_position(x as f64, y as f64) {
+                return Some(WindowInfo {
+                    x: info.x,
+                    y: info.y,
+                    width: info.width,
+                    height: info.height,
+                    titlebar_height: info.titlebar_height,
+                });
+            }
         }
         None
     }

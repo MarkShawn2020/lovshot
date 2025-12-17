@@ -104,3 +104,13 @@ pub struct CropEdges {
     pub left: f32,
     pub right: f32,
 }
+
+/// Extended window info including titlebar height
+#[derive(Clone, Serialize, Deserialize)]
+pub struct WindowInfo {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+    pub titlebar_height: u32,
+}

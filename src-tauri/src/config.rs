@@ -45,6 +45,8 @@ impl ShortcutConfig {
 pub struct AppConfig {
     pub version: String,
     pub shortcuts: HashMap<String, ShortcutConfig>,
+    #[serde(default)]
+    pub developer_mode: bool,
 }
 
 impl Default for AppConfig {
@@ -90,6 +92,7 @@ impl Default for AppConfig {
         Self {
             version: "1.0.0".to_string(),
             shortcuts,
+            developer_mode: false,
         }
     }
 }

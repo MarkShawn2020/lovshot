@@ -23,45 +23,57 @@
 }
 
 .settings-container {
-  padding: 1.5rem;
+  padding: 1.25rem;
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
   height: 100vh;
 }
 
-h1 {
-  font-family: Georgia, 'Times New Roman', serif;
-  font-size: 1.25rem;
-  font-weight: 500;
-  color: var(--foreground);
-}
-
-.shortcuts-list {
+.settings-section {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0.5rem;
 }
 
-.shortcut-row {
+.section-title {
+  font-size: 0.8125rem;
+  font-weight: 400;
+  color: var(--muted-foreground);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  padding-left: 1rem;
+}
+
+.settings-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 0.625rem;
+  overflow: hidden;
+}
+
+.setting-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0.75rem 1rem;
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 0.5rem;
+  padding: 0.625rem 1rem;
+  min-height: 2.75rem;
 }
 
-.shortcut-row.editing {
-  border-color: var(--primary);
+.setting-row.has-border {
+  border-bottom: 1px solid var(--border);
 }
 
-.shortcut-label {
-  font-weight: 500;
+.setting-row.editing {
+  background: rgba(204, 120, 92, 0.05);
 }
 
-.shortcut-value {
+.setting-label {
+  font-size: 0.9375rem;
+  color: var(--foreground);
+}
+
+.setting-control {
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -201,4 +213,41 @@ h1 {
 .btn-secondary:hover {
   background: var(--muted);
   color: var(--foreground);
+}
+
+.switch {
+  position: relative;
+  width: 2.75rem;
+  height: 1.5rem;
+  background: var(--muted);
+  border: none;
+  border-radius: 9999px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  padding: 0;
+}
+
+.switch:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.switch-on {
+  background: var(--primary);
+}
+
+.switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 1.25rem;
+  height: 1.25rem;
+  background: white;
+  border-radius: 9999px;
+  transition: transform 0.2s;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.switch-on .switch-thumb {
+  transform: translateX(1.25rem);
 }

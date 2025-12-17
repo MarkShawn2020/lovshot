@@ -11,14 +11,16 @@ interface ShortcutConfig {
 interface AppConfig {
   version: string;
   shortcuts: Record<string, ShortcutConfig>;
+  developer_mode: boolean;
 }
 
-type EditingAction = "screenshot" | "gif" | "video" | null;
+type EditingAction = "screenshot" | "gif" | "video" | "scroll" | null;
 
 const ACTION_LABELS: Record<string, string> = {
   screenshot: "Screenshot",
   gif: "Record GIF",
   video: "Record Video",
+  scroll: "Scroll Capture",
 };
 
 function formatShortcut(cfg: ShortcutConfig): string {
@@ -160,6 +162,18 @@ export default function Settings() {
     }
   }, []);
 
+  const handleToggleDeveloperMode = useCallback(async () => {
+    if (!config) return;
+    try {
+      const newConfig = await invoke<AppConfig>("set_developer_mode", {
+        enabled: !config.developer_mode,
+      });
+      setConfig(newConfig);
+    } catch (e) {
+      setError(String(e));
+    }
+  }, [config]);
+
   const handleClose = useCallback(async () => {
     await getCurrentWindow().close();
   }, []);
@@ -170,49 +184,69 @@ export default function Settings() {
 
   return (
     <div className="settings-container" ref={containerRef} tabIndex={-1}>
-      <h1>Shortcuts</h1>
+      <section className="settings-section">
+        <h2 className="section-title">Shortcuts</h2>
+        <div className="settings-card">
+          {(config.developer_mode
+            ? (["screenshot", "gif", "scroll", "video"] as const)
+            : (["screenshot", "gif", "video"] as const)
+          ).map((action, index, arr) => {
+            const cfg = config.shortcuts[action];
+            const isEditing = editing === action;
+            const displayValue = cfg ? formatShortcut(cfg) : "Not set";
+            const pendingDisplay = pendingShortcut
+              ? formatShortcut({ modifiers: pendingShortcut.modifiers, key: pendingShortcut.key, enabled: true })
+              : null;
 
-      <div className="shortcuts-list">
-        {(["screenshot", "gif", "video"] as const).map((action) => {
-          const cfg = config.shortcuts[action];
-          const isEditing = editing === action;
-          const displayValue = cfg ? formatShortcut(cfg) : "Not set";
-          const pendingDisplay = pendingShortcut
-            ? formatShortcut({ modifiers: pendingShortcut.modifiers, key: pendingShortcut.key, enabled: true })
-            : null;
-
-          return (
-            <div key={action} className={`shortcut-row ${isEditing ? "editing" : ""}`}>
-              <span className="shortcut-label">{ACTION_LABELS[action]}</span>
-              <div className="shortcut-value">
-                {isEditing ? (
-                  <>
-                    <span className={`shortcut-key ${pendingDisplay ? "captured" : "recording"}`}>
-                      {pendingDisplay || "Press shortcut..."}
-                    </span>
-                    <button className="btn-small" onClick={handleSave} disabled={!pendingShortcut}>
-                      Save
-                    </button>
-                    <button className="btn-small btn-secondary" onClick={handleCancel}>
-                      Cancel
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <span className="shortcut-key">{displayValue}</span>
-                    <button className="btn-small" onClick={() => startEditing(action)}>
-                      Edit
-                    </button>
-                  </>
-                )}
+            return (
+              <div key={action} className={`setting-row ${isEditing ? "editing" : ""} ${index < arr.length - 1 ? "has-border" : ""}`}>
+                <span className="setting-label">{ACTION_LABELS[action]}</span>
+                <div className="setting-control">
+                  {isEditing ? (
+                    <>
+                      <span className={`shortcut-key ${pendingDisplay ? "captured" : "recording"}`}>
+                        {pendingDisplay || "Press shortcut..."}
+                      </span>
+                      <button className="btn-small" onClick={handleSave} disabled={!pendingShortcut}>
+                        Save
+                      </button>
+                      <button className="btn-small btn-secondary" onClick={handleCancel}>
+                        Cancel
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <span className="shortcut-key">{displayValue}</span>
+                      <button className="btn-small" onClick={() => startEditing(action)}>
+                        Edit
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+        {debugInfo && <div className="debug-info">{debugInfo}</div>}
+        {error && <div className="error-message">{error}</div>}
+      </section>
 
-      {debugInfo && <div className="debug-info">{debugInfo}</div>}
-      {error && <div className="error-message">{error}</div>}
+      <section className="settings-section">
+        <h2 className="section-title">Advanced</h2>
+        <div className="settings-card">
+          <div className="setting-row">
+            <span className="setting-label">Developer Mode</span>
+            <button
+              role="switch"
+              aria-checked={config.developer_mode}
+              className={`switch ${config.developer_mode ? "switch-on" : ""}`}
+              onClick={handleToggleDeveloperMode}
+            >
+              <span className="switch-thumb" />
+            </button>
+          </div>
+        </div>
+      </section>
 
       <div className="settings-actions">
         <button className="btn-secondary" onClick={handleReset}>

@@ -21,6 +21,7 @@ export default defineConfig(async () => ({
         scrollOverlay: resolve(__dirname, "scroll-overlay.html"),
         settings: resolve(__dirname, "settings.html"),
         about: resolve(__dirname, "about.html"),
+        permission: resolve(__dirname, "permission.html"),
       },
     },
   },

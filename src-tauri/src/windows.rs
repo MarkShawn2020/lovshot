@@ -85,6 +85,43 @@ pub fn open_editor_window(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Open the permission request window
+pub fn open_permission_window(app: &AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        use objc::{class, msg_send, sel, sel_impl};
+        unsafe {
+            let ns_app: *mut objc::runtime::Object =
+                msg_send![class!(NSApplication), sharedApplication];
+            let _: () = msg_send![ns_app, activateIgnoringOtherApps: true];
+        }
+    }
+
+    // Set to regular app mode so the window is visible
+    set_activation_policy(0);
+
+    if let Some(win) = app.get_webview_window("permission") {
+        let _ = win.show();
+        let _ = win.set_focus();
+        return Ok(());
+    }
+
+    let win = WebviewWindowBuilder::new(app, "permission", WebviewUrl::App("/permission.html".into()))
+        .title("Lovshot - 需要屏幕录制权限")
+        .inner_size(480.0, 400.0)
+        .resizable(false)
+        .center()
+        .focused(true)
+        .closable(false)  // User must grant permission or quit
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let _ = win.show();
+    let _ = win.set_focus();
+
+    Ok(())
+}
+
 /// Open the about window
 pub fn open_about_window(app: AppHandle) -> Result<(), String> {
     #[cfg(target_os = "macos")]

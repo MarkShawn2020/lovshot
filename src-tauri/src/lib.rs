@@ -14,6 +14,7 @@ mod capture;
 mod commands;
 mod config;
 mod fft_match;
+mod permission;
 mod shortcuts;
 mod state;
 mod tray;
@@ -25,7 +26,7 @@ use shortcuts::{get_action_for_shortcut, is_show_main_shortcut, is_stop_recordin
 use state::{AppState, SharedState};
 use tray::{build_tray_menu, load_tray_icon};
 pub use types::*;
-use windows::{open_about_window, open_settings_window};
+use windows::{open_about_window, open_permission_window, open_settings_window};
 
 #[tauri::command]
 fn show_main_window(app: AppHandle) {
@@ -34,6 +35,11 @@ fn show_main_window(app: AppHandle) {
         let _ = win.set_focus();
         windows::set_activation_policy(0); // Regular app mode
     }
+}
+
+#[tauri::command]
+fn quit_app(app: AppHandle) {
+    app.exit(0);
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -155,7 +161,11 @@ pub fn run() {
             commands::get_stats,
             commands::get_autostart_enabled,
             commands::set_autostart_enabled,
+            commands::check_screen_permission,
+            commands::request_screen_permission,
+            commands::open_permission_settings,
             show_main_window,
+            quit_app,
         ])
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
@@ -248,6 +258,20 @@ pub fn run() {
 
             if let Some(main_win) = app.get_webview_window("main") {
                 let _ = main_win.hide();
+            }
+
+            // Check screen recording permission on startup (macOS only)
+            #[cfg(target_os = "macos")]
+            {
+                if !permission::has_screen_recording_permission() {
+                    // Request permission - this triggers system dialog
+                    let _ = permission::request_screen_recording_permission();
+
+                    // Still no permission? Show our custom permission window
+                    if !permission::has_screen_recording_permission() {
+                        let _ = open_permission_window(app.handle());
+                    }
+                }
             }
 
             Ok(())

@@ -4,5 +4,7 @@
 <dict>
     <key>LSUIElement</key>
     <true/>
+    <key>NSScreenCaptureUsageDescription</key>
+    <string>Lovshot 需要屏幕录制权限来截取屏幕内容和录制 GIF。</string>
 </dict>
 </plist>

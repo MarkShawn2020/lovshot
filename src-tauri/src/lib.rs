@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use tauri::{AppHandle, Emitter, Manager, WindowEvent};
-use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::tray::TrayIconBuilder;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri_plugin_global_shortcut::ShortcutState;
 
@@ -117,6 +117,7 @@ pub fn run() {
             commands::cancel_scroll_capture,
             commands::open_scroll_overlay,
             commands::get_history,
+            commands::get_stats,
             show_main_window,
         ])
         .on_window_event(|window, event| {
@@ -227,6 +228,7 @@ pub fn run() {
                         _ => {}
                     }
                 })
+                .menu_on_left_click(true)
                 .build(app)?;
 
             let app_handle = app.handle().clone();

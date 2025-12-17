@@ -490,6 +490,7 @@ pub struct HistoryItem {
     pub filename: String,
     pub file_type: String, // "screenshot" or "gif"
     pub modified: u64,     // unix timestamp
+    pub size: u64,         // file size in bytes
     pub thumbnail: String, // base64 data URL
 }
 
@@ -497,6 +498,17 @@ pub struct HistoryItem {
 pub struct HistoryResponse {
     pub items: Vec<HistoryItem>,
     pub has_more: bool,
+    pub total: usize,
+}
+
+#[derive(serde::Serialize)]
+pub struct StatsResponse {
+    pub total_count: usize,
+    pub screenshot_count: usize,
+    pub gif_count: usize,
+    pub total_size: u64,
+    pub today_count: usize,
+    pub week_count: usize,
 }
 
 struct FileInfo {
@@ -504,9 +516,13 @@ struct FileInfo {
     filename: String,
     file_type: String,
     modified: u64,
+    size: u64,
 }
 
 fn generate_thumbnail(path: &PathBuf, file_type: &str) -> String {
+    // Max width 200px, preserve aspect ratio (no fixed height constraint)
+    const MAX_WIDTH: u32 = 200;
+
     match file_type {
         "gif" => {
             if let Ok(file) = File::open(path) {
@@ -515,7 +531,10 @@ fn generate_thumbnail(path: &PathBuf, file_type: &str) -> String {
                         let w = frame.width as u32;
                         let h = frame.height as u32;
                         if let Some(img) = image::RgbaImage::from_raw(w, h, frame.buffer.to_vec()) {
-                            let thumb = image::imageops::thumbnail(&img, 120, 80);
+                            // Scale to max width while preserving aspect ratio
+                            let new_w = MAX_WIDTH.min(w);
+                            let new_h = (h as f32 * new_w as f32 / w as f32) as u32;
+                            let thumb = image::imageops::thumbnail(&img, new_w, new_h);
                             let mut buf = Vec::new();
                             if thumb.write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Png).is_ok() {
                                 return format!("data:image/png;base64,{}", STANDARD.encode(&buf));
@@ -528,7 +547,10 @@ fn generate_thumbnail(path: &PathBuf, file_type: &str) -> String {
         }
         _ => {
             if let Ok(img) = image::open(path) {
-                let thumb = img.thumbnail(120, 80);
+                let (w, h) = (img.width(), img.height());
+                let new_w = MAX_WIDTH.min(w);
+                let new_h = (h as f32 * new_w as f32 / w as f32) as u32;
+                let thumb = img.thumbnail(new_w, new_h.max(1));
                 let mut buf = Vec::new();
                 if thumb.write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Png).is_ok() {
                     return format!("data:image/png;base64,{}", STANDARD.encode(&buf));
@@ -540,7 +562,11 @@ fn generate_thumbnail(path: &PathBuf, file_type: &str) -> String {
 }
 
 #[tauri::command]
-pub async fn get_history(offset: Option<usize>, limit: Option<usize>) -> Result<HistoryResponse, String> {
+pub async fn get_history(
+    offset: Option<usize>,
+    limit: Option<usize>,
+    filter_type: Option<String>,
+) -> Result<HistoryResponse, String> {
     tokio::task::spawn_blocking(move || {
         let output_dir = dirs::picture_dir()
             .or_else(|| dirs::home_dir())
@@ -548,7 +574,7 @@ pub async fn get_history(offset: Option<usize>, limit: Option<usize>) -> Result<
             .join("lovshot");
 
         if !output_dir.exists() {
-            return Ok(HistoryResponse { items: vec![], has_more: false });
+            return Ok(HistoryResponse { items: vec![], has_more: false, total: 0 });
         }
 
         // Step 1: Collect file metadata only (no thumbnail generation)
@@ -570,31 +596,41 @@ pub async fn get_history(offset: Option<usize>, limit: Option<usize>) -> Result<
                 _ => continue,
             };
 
-            let modified = entry.metadata()
-                .and_then(|m| m.modified())
+            let metadata = entry.metadata().ok();
+            let modified = metadata.as_ref()
+                .and_then(|m| m.modified().ok())
                 .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs())
                 .unwrap_or(0);
+            let size = metadata.map(|m| m.len()).unwrap_or(0);
 
             files.push(FileInfo {
                 path,
                 filename,
                 file_type: file_type.to_string(),
                 modified,
+                size,
             });
         }
 
         // Step 2: Sort by modified time descending
         files.sort_by(|a, b| b.modified.cmp(&a.modified));
 
-        // Step 3: Apply pagination
+        // Step 3: Apply filter if specified
+        let filtered_files: Vec<_> = if let Some(ref ft) = filter_type {
+            files.into_iter().filter(|f| &f.file_type == ft).collect()
+        } else {
+            files
+        };
+
+        // Step 4: Apply pagination
         let offset = offset.unwrap_or(0);
         let limit = limit.unwrap_or(12);
-        let total = files.len();
+        let total = filtered_files.len();
         let has_more = offset + limit < total;
 
-        let page_files: Vec<_> = files.into_iter().skip(offset).take(limit).collect();
+        let page_files: Vec<_> = filtered_files.into_iter().skip(offset).take(limit).collect();
 
-        // Step 4: Generate thumbnails only for the paginated subset
+        // Step 5: Generate thumbnails only for the paginated subset
         let items: Vec<HistoryItem> = page_files
             .into_iter()
             .map(|f| {
@@ -604,12 +640,94 @@ pub async fn get_history(offset: Option<usize>, limit: Option<usize>) -> Result<
                     filename: f.filename,
                     file_type: f.file_type,
                     modified: f.modified,
+                    size: f.size,
                     thumbnail,
                 }
             })
             .collect();
 
-        Ok(HistoryResponse { items, has_more })
+        Ok(HistoryResponse { items, has_more, total })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn get_stats() -> Result<StatsResponse, String> {
+    tokio::task::spawn_blocking(|| {
+        let output_dir = dirs::picture_dir()
+            .or_else(|| dirs::home_dir())
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("lovshot");
+
+        if !output_dir.exists() {
+            return Ok(StatsResponse {
+                total_count: 0,
+                screenshot_count: 0,
+                gif_count: 0,
+                total_size: 0,
+                today_count: 0,
+                week_count: 0,
+            });
+        }
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let today_start = now - (now % 86400); // Start of today (UTC)
+        let week_start = now - 7 * 86400;
+
+        let entries = std::fs::read_dir(&output_dir).map_err(|e| e.to_string())?;
+
+        let mut screenshot_count = 0usize;
+        let mut gif_count = 0usize;
+        let mut total_size = 0u64;
+        let mut today_count = 0usize;
+        let mut week_count = 0usize;
+
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            let is_screenshot = matches!(ext.to_lowercase().as_str(), "png" | "jpg" | "jpeg");
+            let is_gif = ext.to_lowercase() == "gif";
+
+            if !is_screenshot && !is_gif {
+                continue;
+            }
+
+            if is_screenshot {
+                screenshot_count += 1;
+            } else {
+                gif_count += 1;
+            }
+
+            if let Ok(meta) = entry.metadata() {
+                total_size += meta.len();
+                if let Ok(modified) = meta.modified() {
+                    let ts = modified.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
+                    if ts >= today_start {
+                        today_count += 1;
+                    }
+                    if ts >= week_start {
+                        week_count += 1;
+                    }
+                }
+            }
+        }
+
+        Ok(StatsResponse {
+            total_count: screenshot_count + gif_count,
+            screenshot_count,
+            gif_count,
+            total_size,
+            today_count,
+            week_count,
+        })
     })
     .await
     .map_err(|e| e.to_string())?

@@ -13,9 +13,9 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "Lovshot GIF Editor",
-        "width": 360,
-        "height": 620,
+        "title": "Lovshot Dashboard",
+        "width": 800,
+        "height": 600,
         "resizable": true,
         "center": true,
         "minWidth": 320,
@@ -23,7 +23,11 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["**"]
+      }
     }
   },
   "bundle": {

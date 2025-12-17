@@ -21,6 +21,14 @@ interface RecordingInfo {
   has_frames: boolean;
 }
 
+interface HistoryItem {
+  path: string;
+  filename: string;
+  file_type: "screenshot" | "gif";
+  modified: number;
+  thumbnail: string;
+}
+
 interface ExportConfig {
   start_frame: number;
   end_frame: number;
@@ -99,6 +107,9 @@ function App() {
   });
   const [openMenuOpen, setOpenMenuOpen] = useState(false);
 
+  // History state
+  const [history, setHistory] = useState<HistoryItem[]>([]);
+
   // 计算可用的分辨率预设
   const resolutionPresets = useMemo<ResolutionPreset[]>(() => {
     if (!recordingInfo) return [];
@@ -142,6 +153,62 @@ function App() {
     }
   }, []);
 
+  // Load history
+  const loadHistory = useCallback(async () => {
+    try {
+      const items = await invoke<HistoryItem[]>("get_history", { limit: 50 });
+      setHistory(items);
+    } catch (e) {
+      console.error("加载历史记录失败:", e);
+    }
+  }, []);
+
+  // Load history on mount and when returning to idle
+  useEffect(() => {
+    if (mode === "idle") {
+      loadHistory();
+    }
+  }, [mode, loadHistory]);
+
+  // 恢复编辑状态的通用函数
+  const restoreEditingState = useCallback(async () => {
+    try {
+      const info = await invoke<RecordingInfo>("get_recording_info");
+      if (!info.has_frames) return false;
+
+      setRecordingInfo(info);
+      setSavedPath("");
+      const initialConfig: ExportConfig = {
+        start_frame: 0,
+        end_frame: info.frame_count,
+        output_scale: 1,
+        target_fps: 10,
+        loop_mode: "infinite",
+        quality: 80,
+        speed: 1,
+        output_path: null,
+      };
+      setExportConfig(initialConfig);
+      setPreviewFrame(0);
+      setMode("editing");
+      updateSizeEstimate(initialConfig);
+      if (info.frame_count > 0) {
+        invoke<string[]>("get_filmstrip", { count: 12, thumbHeight: 40 })
+          .then(setFilmstrip)
+          .catch((e) => console.error("加载filmstrip失败:", e));
+      }
+      return true;
+    } catch (e) {
+      console.error("获取录制信息失败:", e);
+      return false;
+    }
+  }, [updateSizeEstimate]);
+
+  // 挂载时检查是否有录制数据（热更新恢复）
+  useEffect(() => {
+    restoreEditingState();
+  }, [restoreEditingState]);
+
   // 监听事件
   useEffect(() => {
     const unlistenRecording = listen<RecordingState>("recording-state", (event) => {
@@ -152,32 +219,8 @@ function App() {
     });
 
     const unlistenStopped = listen<{ frame_count: number }>("recording-stopped", async () => {
-      try {
-        const info = await invoke<RecordingInfo>("get_recording_info");
-        setRecordingInfo(info);
-        setSavedPath("");
-        const initialConfig: ExportConfig = {
-          start_frame: 0,
-          end_frame: info.frame_count,
-          output_scale: 1,
-          target_fps: 10,
-          loop_mode: "infinite",
-          quality: 80,
-          speed: 1,
-          output_path: null,
-        };
-        setExportConfig(initialConfig);
-        setPreviewFrame(0);
-        setMode("editing");
-        updateSizeEstimate(initialConfig);
-        // 加载filmstrip缩略图
-        if (info.frame_count > 0) {
-          invoke<string[]>("get_filmstrip", { count: 12, thumbHeight: 40 })
-            .then(setFilmstrip)
-            .catch((e) => console.error("加载filmstrip失败:", e));
-        }
-      } catch (e) {
-        console.error("获取录制信息失败:", e);
+      const restored = await restoreEditingState();
+      if (!restored) {
         setMode("idle");
       }
     });
@@ -202,7 +245,7 @@ function App() {
       unlistenExport.then((fn) => fn());
       unlistenProgress.then((fn) => fn());
     };
-  }, [updateSizeEstimate]);
+  }, [restoreEditingState]);
 
   // 配置变化时更新预估
   useEffect(() => {
@@ -242,21 +285,37 @@ function App() {
   };
 
 
-  // Fetch preview thumbnail when previewFrame changes
+  // Fetch preview thumbnail when previewFrame changes (throttled)
+  const lastFetchTime = useRef(0);
+  const pendingFrame = useRef<number | null>(null);
+
   useEffect(() => {
     if (previewFrame === null || !recordingInfo) {
       setPreviewImage(null);
       return;
     }
 
-    let cancelled = false;
-    invoke<string>("get_frame_thumbnail", { frameIndex: previewFrame, maxHeight: 200 })
-      .then((img) => {
-        if (!cancelled) setPreviewImage(img);
-      })
-      .catch((e) => console.error("Failed to get preview:", e));
+    const now = Date.now();
+    const throttleMs = 32; // ~30fps
 
-    return () => { cancelled = true; };
+    const fetchFrame = (frame: number) => {
+      lastFetchTime.current = Date.now();
+      pendingFrame.current = null;
+      invoke<string>("get_frame_thumbnail", { frameIndex: frame, maxHeight: 200 })
+        .then(setPreviewImage)
+        .catch((e) => console.error("Failed to get preview:", e));
+    };
+
+    if (now - lastFetchTime.current >= throttleMs) {
+      fetchFrame(previewFrame);
+    } else {
+      pendingFrame.current = previewFrame;
+      const delay = throttleMs - (now - lastFetchTime.current);
+      const timer = setTimeout(() => {
+        if (pendingFrame.current !== null) fetchFrame(pendingFrame.current);
+      }, delay);
+      return () => clearTimeout(timer);
+    }
   }, [previewFrame, recordingInfo]);
 
   // Filmstrip 拖动逻辑
@@ -357,9 +416,39 @@ function App() {
 
       <div className="controls">
         {mode === "idle" && (
-          <p className="shortcut-hint">
-            按 <kbd>⌥</kbd> + <kbd>A</kbd> 开始录制
-          </p>
+          <div className="idle-content">
+            <p className="shortcut-hint">
+              按 <kbd>⌥</kbd> + <kbd>A</kbd> 开始截图
+            </p>
+            {history.length > 0 && (
+              <div className="history-section">
+                <h3>历史记录</h3>
+                <div className="history-grid">
+                  {history.map((item) => (
+                    <div
+                      key={item.path}
+                      className="history-item"
+                      onClick={() => invoke("open_file", { path: item.path })}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        invoke("reveal_in_folder", { path: item.path });
+                      }}
+                      title={`${item.filename}\n右键在 Finder 中显示`}
+                    >
+                      {item.thumbnail ? (
+                        <img src={item.thumbnail} alt={item.filename} className="history-thumb" />
+                      ) : (
+                        <div className="history-thumb-placeholder" />
+                      )}
+                      <span className={`history-badge history-badge-${item.file_type}`}>
+                        {item.file_type === "gif" ? "GIF" : "IMG"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         )}
 
         {mode === "recording" && (
@@ -386,7 +475,10 @@ function App() {
               <div
                 ref={filmstripRef}
                 className="filmstrip"
-                onClick={handleFilmstripClick}
+                onMouseMove={(e) => {
+                  const frame = getFrameFromX(e.clientX);
+                  setPreviewFrame(Math.min(Math.max(0, frame), (recordingInfo?.frame_count ?? 1) - 1));
+                }}
                 onMouseDown={handleFilmstripScrubStart}
               >
                 {/* 缩略图条 */}

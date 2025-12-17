@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use tauri::{Emitter, Manager, WindowEvent};
+use tauri::{AppHandle, Emitter, Manager, WindowEvent};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri_plugin_global_shortcut::ShortcutState;
@@ -24,6 +24,15 @@ use shortcuts::{format_shortcut_display, get_action_for_shortcut, register_short
 use windows::{open_about_window, open_settings_window};
 use tray::load_tray_icon;
 use commands::open_selector_internal;
+
+#[tauri::command]
+fn show_main_window(app: AppHandle) {
+    if let Some(win) = app.get_webview_window("main") {
+        let _ = win.show();
+        let _ = win.set_focus();
+        windows::set_activation_policy(0); // Regular app mode
+    }
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -107,6 +116,8 @@ pub fn run() {
             commands::stop_scroll_capture,
             commands::cancel_scroll_capture,
             commands::open_scroll_overlay,
+            commands::get_history,
+            show_main_window,
         ])
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
@@ -143,6 +154,8 @@ pub fn run() {
                 .map(|s| s.to_shortcut_string())
                 .unwrap_or_else(|| "Alt+S".to_string());
 
+            let menu_show = MenuItem::with_id(app, "show", "Show Lovshot", true, None::<&str>)?;
+            let menu_sep0 = PredefinedMenuItem::separator(app)?;
             let menu_screenshot = MenuItem::with_id(app, "screenshot", format!("Screenshot        {}", format_shortcut_display(&screenshot_shortcut)), true, None::<&str>)?;
             let menu_gif = MenuItem::with_id(app, "gif", format!("Record GIF        {}", format_shortcut_display(&gif_shortcut)), true, None::<&str>)?;
             let menu_scroll = MenuItem::with_id(app, "scroll", format!("Scroll Capture    {}", format_shortcut_display(&scroll_shortcut)), true, None::<&str>)?;
@@ -155,6 +168,8 @@ pub fn run() {
             let menu_quit = MenuItem::with_id(app, "quit", "Quit Lovshot", true, None::<&str>)?;
 
             let tray_menu = Menu::with_items(app, &[
+                &menu_show,
+                &menu_sep0,
                 &menu_screenshot,
                 &menu_gif,
                 &menu_scroll,
@@ -170,7 +185,6 @@ pub fn run() {
             let tray_icon = load_tray_icon(false)
                 .unwrap_or_else(|| app.default_window_icon().unwrap().clone());
 
-            let state_clone = state_for_tray.clone();
             let state_for_menu = state_for_tray.clone();
             let _tray = TrayIconBuilder::with_id("main")
                 .icon(tray_icon)
@@ -178,6 +192,13 @@ pub fn run() {
                 .menu(&tray_menu)
                 .on_menu_event(move |app, event| {
                     match event.id.as_ref() {
+                        "show" => {
+                            if let Some(win) = app.get_webview_window("main") {
+                                let _ = win.show();
+                                let _ = win.set_focus();
+                                windows::set_activation_policy(0);
+                            }
+                        }
                         "screenshot" => {
                             state_for_menu.lock().unwrap().pending_mode = Some(CaptureMode::Image);
                             let _ = open_selector_internal(app.clone());
@@ -204,24 +225,6 @@ pub fn run() {
                             app.exit(0);
                         }
                         _ => {}
-                    }
-                })
-                .on_tray_icon_event(move |tray, event| {
-                    if let TrayIconEvent::Click {
-                        button: MouseButton::Left,
-                        button_state: MouseButtonState::Up,
-                        ..
-                    } = event
-                    {
-                        let app = tray.app_handle();
-                        let is_recording = state_clone.lock().unwrap().recording;
-                        if is_recording {
-                            println!("[DEBUG][tray] 点击托盘停止录制");
-                            state_clone.lock().unwrap().recording = false;
-                        } else {
-                            state_clone.lock().unwrap().pending_mode = Some(CaptureMode::Image);
-                            let _ = open_selector_internal(app.clone());
-                        }
                     }
                 })
                 .build(app)?;

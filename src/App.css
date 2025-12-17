@@ -550,3 +550,80 @@ kbd {
   min-width: 3.5em;
   text-align: right;
 }
+
+/* History section */
+.idle-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.5rem;
+  width: 100%;
+  max-width: 480px;
+}
+
+.history-section {
+  width: 100%;
+}
+
+.history-section h3 {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--muted-foreground);
+  margin-bottom: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.history-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+  gap: 0.5rem;
+}
+
+.history-item {
+  position: relative;
+  aspect-ratio: 4/3;
+  border-radius: 6px;
+  overflow: hidden;
+  cursor: pointer;
+  background: var(--muted);
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.history-item:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.history-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.history-thumb-placeholder {
+  width: 100%;
+  height: 100%;
+  background: var(--border);
+}
+
+.history-badge {
+  position: absolute;
+  bottom: 4px;
+  right: 4px;
+  font-size: 0.6rem;
+  font-weight: 600;
+  padding: 2px 4px;
+  border-radius: 3px;
+  text-transform: uppercase;
+}
+
+.history-badge-screenshot {
+  background: rgba(0, 0, 0, 0.6);
+  color: white;
+}
+
+.history-badge-gif {
+  background: var(--primary);
+  color: white;
+}

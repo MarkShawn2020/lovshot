@@ -483,3 +483,112 @@ pub fn reveal_in_folder(path: String) -> Result<(), String> {
     }
     Ok(())
 }
+
+#[derive(serde::Serialize)]
+pub struct HistoryItem {
+    pub path: String,
+    pub filename: String,
+    pub file_type: String, // "screenshot" or "gif"
+    pub modified: u64,     // unix timestamp
+    pub thumbnail: String, // base64 data URL
+}
+
+#[tauri::command]
+pub fn get_history(limit: Option<usize>) -> Result<Vec<HistoryItem>, String> {
+    let output_dir = dirs::picture_dir()
+        .or_else(|| dirs::home_dir())
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("lovshot");
+
+    if !output_dir.exists() {
+        return Ok(vec![]);
+    }
+
+    let mut items: Vec<HistoryItem> = vec![];
+    let entries = std::fs::read_dir(&output_dir).map_err(|e| e.to_string())?;
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
+
+        let file_type = match ext.to_lowercase().as_str() {
+            "png" | "jpg" | "jpeg" => "screenshot",
+            "gif" => "gif",
+            _ => continue,
+        };
+
+        let modified = entry.metadata()
+            .and_then(|m| m.modified())
+            .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs())
+            .unwrap_or(0);
+
+        // Generate thumbnail
+        let thumbnail = match file_type {
+            "gif" => {
+                // For GIF, extract first frame
+                if let Ok(file) = File::open(&path) {
+                    if let Ok(mut decoder) = gif::DecodeOptions::new().read_info(file) {
+                        if let Ok(Some(frame)) = decoder.read_next_frame() {
+                            let w = frame.width as u32;
+                            let h = frame.height as u32;
+                            if let Some(img) = image::RgbaImage::from_raw(w, h, frame.buffer.to_vec()) {
+                                let thumb = image::imageops::thumbnail(&img, 120, 80);
+                                let mut buf = Vec::new();
+                                if thumb.write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Png).is_ok() {
+                                    format!("data:image/png;base64,{}", STANDARD.encode(&buf))
+                                } else {
+                                    String::new()
+                                }
+                            } else {
+                                String::new()
+                            }
+                        } else {
+                            String::new()
+                        }
+                    } else {
+                        String::new()
+                    }
+                } else {
+                    String::new()
+                }
+            }
+            _ => {
+                // For images
+                if let Ok(img) = image::open(&path) {
+                    let thumb = img.thumbnail(120, 80);
+                    let mut buf = Vec::new();
+                    if thumb.write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Png).is_ok() {
+                        format!("data:image/png;base64,{}", STANDARD.encode(&buf))
+                    } else {
+                        String::new()
+                    }
+                } else {
+                    String::new()
+                }
+            }
+        };
+
+        items.push(HistoryItem {
+            path: path.to_string_lossy().to_string(),
+            filename,
+            file_type: file_type.to_string(),
+            modified,
+            thumbnail,
+        });
+    }
+
+    // Sort by modified time descending (newest first)
+    items.sort_by(|a, b| b.modified.cmp(&a.modified));
+
+    // Apply limit
+    if let Some(limit) = limit {
+        items.truncate(limit);
+    }
+
+    Ok(items)
+}

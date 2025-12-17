@@ -20,16 +20,22 @@ pub fn open_selector(app: AppHandle, state: tauri::State<SharedState>) -> Result
         return Ok(());
     }
 
-    let has_frames = !state.lock().unwrap().frames.is_empty();
-    if !has_frames {
+    // Only hide main window if we're starting a GIF/Video recording (not for screenshots)
+    // Screenshots should not disrupt the dashboard view
+    let s = state.lock().unwrap();
+    let has_frames = !s.frames.is_empty();
+    let pending_mode = s.pending_mode;
+    drop(s);
+
+    let should_hide = !has_frames && matches!(pending_mode, Some(CaptureMode::Gif) | Some(CaptureMode::Video));
+    if should_hide {
         if let Some(main_win) = app.get_webview_window("main") {
-            println!("[DEBUG][open_selector] 隐藏主窗口");
+            println!("[DEBUG][open_selector] GIF/Video 模式，隐藏主窗口");
             let _ = main_win.hide();
-            // Switch back to Accessory policy when hiding main window
             set_activation_policy(1);
         }
     } else {
-        println!("[DEBUG][open_selector] 有编辑中的数据，保持主窗口");
+        println!("[DEBUG][open_selector] 截图/滚动模式或有编辑数据，保持主窗口");
     }
 
     let screens = Screen::all().map_err(|e| e.to_string())?;
@@ -166,12 +172,17 @@ pub fn open_selector_internal(app: AppHandle) -> Result<(), String> {
         return Ok(());
     }
 
+    // Only hide main window if we're starting a GIF/Video recording (not for screenshots)
     let state = app.state::<SharedState>();
-    let has_frames = !state.lock().unwrap().frames.is_empty();
-    if !has_frames {
+    let s = state.lock().unwrap();
+    let has_frames = !s.frames.is_empty();
+    let pending_mode = s.pending_mode;
+    drop(s);
+
+    let should_hide = !has_frames && matches!(pending_mode, Some(CaptureMode::Gif) | Some(CaptureMode::Video));
+    if should_hide {
         if let Some(main_win) = app.get_webview_window("main") {
             let _ = main_win.hide();
-            // Switch back to Accessory policy when hiding main window
             set_activation_policy(1);
         }
     }

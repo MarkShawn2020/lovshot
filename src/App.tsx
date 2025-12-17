@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { save } from "@tauri-apps/plugin-dialog";
+import { ChevronDownIcon } from "@radix-ui/react-icons";
 import "./App.css";
 
 type AppMode = "idle" | "recording" | "editing";
@@ -91,6 +92,12 @@ function App() {
   const [previewFrame, setPreviewFrame] = useState<number | null>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [scrubbing, setScrubbing] = useState(false);
+
+  // Open button state
+  const [openAction, setOpenAction] = useState<"folder" | "file">(() => {
+    return (localStorage.getItem("openAction") as "folder" | "file") || "folder";
+  });
+  const [openMenuOpen, setOpenMenuOpen] = useState(false);
 
   // 计算可用的分辨率预设
   const resolutionPresets = useMemo<ResolutionPreset[]>(() => {
@@ -203,6 +210,14 @@ function App() {
       updateSizeEstimate(exportConfig);
     }
   }, [exportConfig, mode, recordingInfo, updateSizeEstimate]);
+
+  // 点击外部关闭菜单
+  useEffect(() => {
+    if (!openMenuOpen) return;
+    const handleClick = () => setOpenMenuOpen(false);
+    document.addEventListener("click", handleClick);
+    return () => document.removeEventListener("click", handleClick);
+  }, [openMenuOpen]);
 
   const handleStopRecording = async () => {
     await invoke("stop_recording");
@@ -523,13 +538,53 @@ function App() {
                 )}
               </button>
               {savedPath && (
-                <button
-                  className="btn-open"
-                  onClick={() => invoke("open_file", { path: savedPath })}
-                  title={savedPath}
-                >
-                  Open
-                </button>
+                <div className="split-button" title={savedPath}>
+                  <button
+                    className="btn-open split-main"
+                    onClick={() => {
+                      if (openAction === "folder") {
+                        invoke("reveal_in_folder", { path: savedPath });
+                      } else {
+                        invoke("open_file", { path: savedPath });
+                      }
+                    }}
+                  >
+                    {openAction === "folder" ? "Show" : "Open"}
+                  </button>
+                  <button
+                    className="btn-open split-toggle"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setOpenMenuOpen(!openMenuOpen);
+                    }}
+                  >
+                    <ChevronDownIcon width={18} height={18} />
+                  </button>
+                  {openMenuOpen && (
+                    <div className="split-menu" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        className={openAction === "folder" ? "active" : ""}
+                        onClick={() => {
+                          setOpenAction("folder");
+                          localStorage.setItem("openAction", "folder");
+                          setOpenMenuOpen(false);
+                        }}
+                      >
+                        Show in Folder
+                      </button>
+                      <button
+                        className={openAction === "file" ? "active" : ""}
+                        onClick={() => {
+                          setOpenAction("file");
+                          localStorage.setItem("openAction", "file");
+                          setOpenMenuOpen(false);
+                        }}
+                      >
+                        Open File
+                      </button>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           </div>

@@ -450,9 +450,10 @@ export default function Selector() {
             G
           </button>
           <button
-            className={`toolbar-btn ${mode === "scroll" ? "active" : ""}`}
-            onClick={() => setMode("scroll")}
-            title="Scroll Capture (L)"
+            className="toolbar-btn"
+            disabled
+            style={{ opacity: 0.4, cursor: "not-allowed" }}
+            title="Scroll Capture (L) - Coming Soon"
           >
             L
           </button>

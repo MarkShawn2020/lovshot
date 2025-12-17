@@ -97,6 +97,7 @@ pub fn run() {
             commands::get_filmstrip,
             commands::save_screenshot,
             commands::open_file,
+            commands::reveal_in_folder,
             // Scroll capture commands
             commands::start_scroll_capture,
             commands::capture_scroll_frame_auto,

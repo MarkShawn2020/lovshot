@@ -415,6 +415,7 @@ kbd {
 .export-actions {
   display: flex;
   gap: 0.5rem;
+  align-items: stretch;
 }
 
 /* Export button with progress */
@@ -424,16 +425,77 @@ kbd {
   flex: 1;
 }
 
-.btn-open {
+/* Split button */
+.split-button {
+  display: flex;
+  position: relative;
+  flex: 1;
+}
+
+.split-button .btn-open {
   background: var(--muted);
   color: var(--foreground);
   border: 1px solid var(--border);
-  padding: 0.625rem 1rem;
-  flex-shrink: 0;
+  padding: 0 1rem;
+  flex: none;
+  border-radius: 0;
 }
 
-.btn-open:hover {
+.split-button .btn-open:hover {
   background: var(--border);
+}
+
+.split-button .btn-open.split-main {
+  border-radius: 0.75rem 0 0 0.75rem;
+  border-right: none;
+  flex: 1;
+}
+
+.split-button .btn-open.split-toggle {
+  border-radius: 0 0.75rem 0.75rem 0;
+  padding: 0 1rem;
+  font-size: 1rem;
+  border-left: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.split-menu {
+  position: absolute;
+  bottom: 100%;
+  right: 0;
+  margin-bottom: 8px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  overflow: hidden;
+  min-width: 200px;
+  padding: 0.375rem;
+}
+
+.split-menu button {
+  display: block;
+  flex: none;
+  width: 100%;
+  padding: 0.75rem 1.5rem;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: 0.5rem;
+  color: var(--foreground);
+  cursor: pointer;
+  font-size: 0.875rem;
+  white-space: nowrap;
+}
+
+.split-menu button:hover {
+  background: var(--muted);
+}
+
+.split-menu button.active {
+  background: var(--primary);
+  color: var(--primary-foreground);
 }
 
 .export-progress-text {

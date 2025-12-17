@@ -2,7 +2,7 @@
   "name": "lovshot",
   "private": true,
   "packageManager": "pnpm@10.18.1",
-  "version": "0.14.0",
+  "version": "0.14.1",
   "type": "module",
   "scripts": {
     "dev": "vite",

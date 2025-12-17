@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.14.1
+
+### Patch Changes
+
+- a03b813: 修复启动时权限弹窗重复显示的问题
+
 ## 0.14.0
 
 ### Minor Changes

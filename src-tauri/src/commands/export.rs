@@ -626,57 +626,6 @@ struct FileInfo {
     size: u64,
 }
 
-fn generate_thumbnail(path: &PathBuf, file_type: &str) -> String {
-    // Max width 200px, preserve aspect ratio (no fixed height constraint)
-    const MAX_WIDTH: u32 = 200;
-
-    match file_type {
-        "gif" => {
-            if let Ok(file) = File::open(path) {
-                if let Ok(mut decoder) = gif::DecodeOptions::new().read_info(file) {
-                    if let Ok(Some(frame)) = decoder.read_next_frame() {
-                        let w = frame.width as u32;
-                        let h = frame.height as u32;
-                        if let Some(img) = image::RgbaImage::from_raw(w, h, frame.buffer.to_vec()) {
-                            // Scale to max width while preserving aspect ratio
-                            let new_w = MAX_WIDTH.min(w);
-                            let new_h = (h as f32 * new_w as f32 / w as f32) as u32;
-                            let thumb = image::imageops::thumbnail(&img, new_w, new_h);
-                            let mut buf = Vec::new();
-                            if thumb
-                                .write_to(
-                                    &mut std::io::Cursor::new(&mut buf),
-                                    image::ImageFormat::Png,
-                                )
-                                .is_ok()
-                            {
-                                return format!("data:image/png;base64,{}", STANDARD.encode(&buf));
-                            }
-                        }
-                    }
-                }
-            }
-            String::new()
-        }
-        _ => {
-            if let Ok(img) = image::open(path) {
-                let (w, h) = (img.width(), img.height());
-                let new_w = MAX_WIDTH.min(w);
-                let new_h = (h as f32 * new_w as f32 / w as f32) as u32;
-                let thumb = img.thumbnail(new_w, new_h.max(1));
-                let mut buf = Vec::new();
-                if thumb
-                    .write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Png)
-                    .is_ok()
-                {
-                    return format!("data:image/png;base64,{}", STANDARD.encode(&buf));
-                }
-            }
-            String::new()
-        }
-    }
-}
-
 #[tauri::command]
 pub async fn get_history(
     offset: Option<usize>,
@@ -763,19 +712,16 @@ pub async fn get_history(
             .take(limit)
             .collect();
 
-        // Step 5: Generate thumbnails only for the paginated subset
+        // Step 5: Map to HistoryItem (no thumbnail generation - frontend uses original files)
         let items: Vec<HistoryItem> = page_files
             .into_iter()
-            .map(|f| {
-                let thumbnail = generate_thumbnail(&f.path, &f.file_type);
-                HistoryItem {
-                    path: f.path.to_string_lossy().to_string(),
-                    filename: f.filename,
-                    file_type: f.file_type,
-                    modified: f.modified,
-                    size: f.size,
-                    thumbnail,
-                }
+            .map(|f| HistoryItem {
+                path: f.path.to_string_lossy().to_string(),
+                filename: f.filename,
+                file_type: f.file_type,
+                modified: f.modified,
+                size: f.size,
+                thumbnail: String::new(),
             })
             .collect();
 

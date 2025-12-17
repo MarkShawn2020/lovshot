@@ -196,7 +196,23 @@ function App() {
 
   useEffect(() => {
     setSelected(null);
-    loadHistory(true);
+    setLoading(true);
+    const filterType = filter === "all" ? null : filter;
+    invoke<HistoryResponse>("get_history", {
+      offset: 0,
+      limit: PAGE_SIZE,
+      filterType,
+    }).then(res => {
+      setHistory(res.items);
+      setHasMore(res.has_more);
+      if (res.items.length > 0 && window.innerWidth >= 700) {
+        setSelected(res.items[0]);
+      }
+    }).catch(e => {
+      console.error("加载历史记录失败:", e);
+    }).finally(() => {
+      setLoading(false);
+    });
   }, [filter]);
 
   useEffect(() => {
@@ -321,10 +337,8 @@ function App() {
                       <div className="history-thumb-loading">
                         <div className="loading-spinner" />
                       </div>
-                    ) : item.thumbnail ? (
-                      <img src={item.thumbnail} alt={item.filename} className="history-thumb" />
                     ) : (
-                      <div className="history-thumb-placeholder" />
+                      <img src={convertFileSrc(item.path)} alt={item.filename} className="history-thumb" loading="lazy" />
                     )}
                     <span className={`history-badge history-badge-${item.file_type}`}>
                       {item.file_type === "gif" ? "GIF" : "IMG"}

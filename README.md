@@ -35,7 +35,12 @@
 
 ### Download
 
-Coming soon - check [Releases](../../releases) for `.dmg` files.
+Download `.dmg` from [Releases](../../releases).
+
+> **Note**: The app is not code-signed. If macOS shows "damaged" error, run:
+> ```bash
+> sudo xattr -dr com.apple.quarantine /Applications/lovshot.app
+> ```
 
 ### Build from Source
 

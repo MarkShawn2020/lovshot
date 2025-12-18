@@ -5,7 +5,8 @@
 <h1 align="center">Lovshot</h1>
 
 <p align="center">
-  <strong>Lightweight screenshot & GIF recorder for macOS</strong>
+  <strong>Lightweight screenshot & GIF recorder</strong><br>
+  Windows • macOS • Linux
 </p>
 
 <p align="center">
@@ -22,8 +23,8 @@
 - **Region Screenshot** - Select any area, save to clipboard and disk instantly
 - **GIF Recording** - Record screen regions with built-in editor for trimming
 - **Scroll Capture** - Capture long pages by auto-scrolling *(experimental)*
-- **Global Hotkey** - `⌥ A` activates from anywhere, no window switching
-- **Menu Bar App** - Runs quietly without cluttering Dock or Cmd+Tab
+- **Global Hotkey** - `Alt+A` (Windows/Linux) or `⌥ A` (macOS) activates from anywhere
+- **System Tray App** - Runs quietly in the background
 
 ## Screenshots
 
@@ -35,9 +36,15 @@
 
 ### Download
 
-Download `.dmg` from [Releases](https://github.com/MarkShawn2020/lovshot/releases).
+Download the installer for your platform from [Releases](https://github.com/MarkShawn2020/lovshot/releases):
 
-> **Note**: The app is not code-signed. If macOS shows "damaged" error, run:
+| Platform | File |
+|----------|------|
+| Windows | `.msi` / `.exe` |
+| macOS | `.dmg` |
+| Linux | `.deb` / `.AppImage` |
+
+> **macOS Note**: The app is not code-signed. If macOS shows "damaged" error, run:
 > ```bash
 > sudo xattr -dr com.apple.quarantine /Applications/lovshot.app
 > ```
@@ -53,9 +60,9 @@ pnpm tauri build
 
 ## Usage
 
-1. Press `⌥ A` to open selector
+1. Press `Alt+A` / `⌥ A` to open selector
 2. Drag to select region
-3. Choose mode: 📷 Screenshot or 🎬 GIF
+3. Choose mode: Screenshot or GIF
 4. Click ✓ to confirm
 
 ### GIF Editor
@@ -71,7 +78,7 @@ After recording, the editor opens automatically:
 
 | Key | Action |
 |-----|--------|
-| `⌥ A` | Open selector / Stop recording |
+| `Alt+A` / `⌥ A` | Open selector / Stop recording |
 | `ESC` | Cancel selection |
 | `Enter` | Confirm selection |
 | `S` | Switch to screenshot mode |

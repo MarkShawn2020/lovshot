@@ -1,12 +1,15 @@
 <p align="center">
-  <img src="assets/logo.svg" width="128" height="128" alt="Lovshot Logo">
+  <img src="docs/images/cover.png" alt="Lovshot Cover" width="100%">
 </p>
 
-<h1 align="center">Lovshot</h1>
+<h1 align="center">
+  <img src="assets/logo.svg" width="32" height="32" alt="Lovshot Logo" align="top">
+  Lovshot
+</h1>
 
 <p align="center">
-  <strong>Lightweight screenshot & GIF recorder</strong><br>
-  Windows • macOS • Linux
+  <strong>Lightweight screenshot & GIF recorder for desktop</strong><br>
+  <sub>macOS • Windows • Linux</sub>
 </p>
 
 <p align="center">

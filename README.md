@@ -35,7 +35,7 @@
 
 ### Download
 
-Download `.dmg` from [Releases](../../releases).
+Download `.dmg` from [Releases](https://github.com/MarkShawn2020/lovshot/releases).
 
 > **Note**: The app is not code-signed. If macOS shows "damaged" error, run:
 > ```bash
@@ -45,7 +45,7 @@ Download `.dmg` from [Releases](../../releases).
 ### Build from Source
 
 ```bash
-git clone https://github.com/user/lovshot.git
+git clone https://github.com/MarkShawn2020/lovshot.git
 cd lovshot
 pnpm install
 pnpm tauri build

@@ -5,6 +5,8 @@
   "windows": ["main", "selector", "settings", "about", "scroll-overlay", "scroll-border", "editor-*", "preview", "caption-*"],
   "permissions": [
     "core:default",
+    "core:event:allow-emit",
+    "core:event:allow-listen",
     "core:window:allow-create",
     "core:window:allow-close",
     "core:window:allow-destroy",

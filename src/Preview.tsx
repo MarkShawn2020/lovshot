@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { emit } from "@tauri-apps/api/event";
 
 export default function Preview() {
   const params = new URLSearchParams(window.location.search);
@@ -80,7 +81,11 @@ export default function Preview() {
             className="caption-input"
             placeholder="添加图片描述..."
             value={caption}
-            onChange={(e) => setCaption(e.target.value)}
+            onChange={(e) => {
+              const val = e.target.value;
+              setCaption(val);
+              emit("caption-typing", { path, caption: val });
+            }}
             autoFocus
           />
           <div className="caption-actions">

@@ -185,9 +185,37 @@ function App() {
       }, 100);
     });
 
+    // 监听 caption 实时输入，立即更新 description
+    const unlistenTyping = listen<{ path: string; caption: string }>("caption-typing", (event) => {
+      const { path, caption } = event.payload;
+      setHistory((prev) =>
+        prev.map((item) =>
+          item.path === path ? { ...item, description: caption || undefined } : item
+        )
+      );
+      setSelected((prev) =>
+        prev?.path === path ? { ...prev, description: caption || undefined } : prev
+      );
+    });
+
+    // 监听 caption 保存事件
+    const unlistenCaption = listen<{ path: string; caption: string }>("caption-saved", (event) => {
+      const { path, caption } = event.payload;
+      setHistory((prev) =>
+        prev.map((item) =>
+          item.path === path ? { ...item, description: caption } : item
+        )
+      );
+      setSelected((prev) =>
+        prev?.path === path ? { ...prev, description: caption } : prev
+      );
+    });
+
     return () => {
       unlistenScreenshot.then((fn) => fn());
       unlistenGif.then((fn) => fn());
+      unlistenTyping.then((fn) => fn());
+      unlistenCaption.then((fn) => fn());
     };
   }, [loadStats]);
 

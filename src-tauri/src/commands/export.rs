@@ -888,12 +888,20 @@ pub fn save_caption(app: AppHandle, path: String, caption: String) -> Result<(),
         return Err(format!("File not found: {}", path));
     }
 
-    // Write PNG Comment using png crate in a separate thread
+    // Write Finder comment in background, emit event when done
     let path_clone = path.clone();
     let caption_clone = caption.clone();
+    let app_clone = app.clone();
     std::thread::spawn(move || {
         if let Err(e) = write_png_comment(&path_clone, &caption_clone) {
             println!("[save_caption] PNG comment error: {}", e);
+        } else {
+            // Emit event to notify frontend
+            let _ = app_clone.emit("caption-saved", serde_json::json!({
+                "path": path_clone,
+                "caption": caption_clone
+            }));
+            println!("[save_caption] Emitted caption-saved event");
         }
     });
 

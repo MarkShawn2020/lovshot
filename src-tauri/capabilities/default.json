@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Capability for the main window",
-  "windows": ["main", "selector", "settings", "about", "scroll-overlay", "scroll-border", "editor-*"],
+  "windows": ["main", "selector", "settings", "about", "scroll-overlay", "scroll-border", "editor-*", "preview", "caption-*"],
   "permissions": [
     "core:default",
     "core:window:allow-create",

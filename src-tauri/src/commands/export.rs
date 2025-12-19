@@ -189,46 +189,82 @@ pub fn save_screenshot(
     state: tauri::State<SharedState>,
     scale: Option<f32>,
 ) -> Result<String, String> {
+    use crate::types::CaptureMode;
+
     println!("[DEBUG][save_screenshot] ====== 被调用 ======");
     let s = state.lock().unwrap();
     let region = s.region.clone().ok_or("No region selected")?;
     let output_scale = scale.unwrap_or(1.0).clamp(0.1, 1.0);
+    let pending_mode = s.pending_mode;
+    let cached_snapshot = s.cached_snapshot.clone();
+    let screen_scale = s.screen_scale;
+    let screen_x = s.screen_x;
+    let screen_y = s.screen_y;
     println!(
-        "[DEBUG][save_screenshot] region: x={}, y={}, w={}, h={}, scale={}",
-        region.x, region.y, region.width, region.height, output_scale
+        "[DEBUG][save_screenshot] region: x={}, y={}, w={}, h={}, scale={}, mode={:?}",
+        region.x, region.y, region.width, region.height, output_scale, pending_mode
     );
     drop(s);
 
-    let screens = Screen::all().map_err(|e| {
-        println!("[DEBUG][save_screenshot] Screen::all 错误: {}", e);
-        e.to_string()
-    })?;
-    if screens.is_empty() {
-        println!("[DEBUG][save_screenshot] 没有找到屏幕");
-        return Err("No screens found".to_string());
-    }
-    println!("[DEBUG][save_screenshot] 找到 {} 个屏幕", screens.len());
+    // Static mode: crop from cached snapshot
+    // Dynamic mode: capture live screen
+    let captured_rgba = if matches!(pending_mode, Some(CaptureMode::StaticImage)) {
+        if let Some(ref snapshot) = cached_snapshot {
+            println!("[DEBUG][save_screenshot] 静态模式，从缓存截图裁剪");
+            // Convert logical pixels to physical pixels
+            let rel_x = ((region.x - screen_x) as f32 * screen_scale).max(0.0) as u32;
+            let rel_y = ((region.y - screen_y) as f32 * screen_scale).max(0.0) as u32;
+            let phys_w = (region.width as f32 * screen_scale) as u32;
+            let phys_h = (region.height as f32 * screen_scale) as u32;
 
-    let screen = &screens[0];
-    println!(
-        "[DEBUG][save_screenshot] 调用 capture_area: x={}, y={}, w={}, h={}",
-        region.x, region.y, region.width, region.height
-    );
-    let captured = screen
-        .capture_area(region.x, region.y, region.width, region.height)
-        .map_err(|e| {
-            println!("[DEBUG][save_screenshot] capture_area 错误: {}", e);
+            // Clamp to valid bounds
+            let max_x = snapshot.width().saturating_sub(1);
+            let max_y = snapshot.height().saturating_sub(1);
+            let crop_x = rel_x.min(max_x);
+            let crop_y = rel_y.min(max_y);
+            let crop_w = phys_w.min(snapshot.width().saturating_sub(crop_x));
+            let crop_h = phys_h.min(snapshot.height().saturating_sub(crop_y));
+
+            if crop_w == 0 || crop_h == 0 {
+                return Err("Invalid capture area".to_string());
+            }
+
+            image::imageops::crop_imm(snapshot, crop_x, crop_y, crop_w, crop_h).to_image()
+        } else {
+            return Err("No cached snapshot for static mode".to_string());
+        }
+    } else {
+        println!("[DEBUG][save_screenshot] 动态模式，实时截取屏幕");
+        let screens = Screen::all().map_err(|e| {
+            println!("[DEBUG][save_screenshot] Screen::all 错误: {}", e);
             e.to_string()
         })?;
-    println!(
-        "[DEBUG][save_screenshot] capture_area 成功, 图像尺寸: {}x{}",
-        captured.width(),
-        captured.height()
-    );
+        if screens.is_empty() {
+            println!("[DEBUG][save_screenshot] 没有找到屏幕");
+            return Err("No screens found".to_string());
+        }
+        println!("[DEBUG][save_screenshot] 找到 {} 个屏幕", screens.len());
 
-    let captured_rgba =
+        let screen = &screens[0];
+        println!(
+            "[DEBUG][save_screenshot] 调用 capture_area: x={}, y={}, w={}, h={}",
+            region.x, region.y, region.width, region.height
+        );
+        let captured = screen
+            .capture_area(region.x, region.y, region.width, region.height)
+            .map_err(|e| {
+                println!("[DEBUG][save_screenshot] capture_area 错误: {}", e);
+                e.to_string()
+            })?;
+        println!(
+            "[DEBUG][save_screenshot] capture_area 成功, 图像尺寸: {}x{}",
+            captured.width(),
+            captured.height()
+        );
+
         RgbaImage::from_raw(captured.width(), captured.height(), captured.into_raw())
-            .ok_or("Failed to convert image")?;
+            .ok_or("Failed to convert image")?
+    };
 
     let img = if (output_scale - 1.0).abs() > 0.01 {
         let new_w = (captured_rgba.width() as f32 * output_scale) as u32;

@@ -27,6 +27,7 @@ export default function ScrollOverlay() {
   const [crop, setCrop] = useState<CropEdges>({ top: 0, bottom: 0, left: 0, right: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef<Edge | null>(null);
+  const isClosingRef = useRef(false); // Prevent double-close
 
   // Listen for instant initial preview data pushed from backend
   useEffect(() => {
@@ -67,27 +68,37 @@ export default function ScrollOverlay() {
     return () => clearInterval(intervalId);
   }, [isStopped, progress]);
 
-  // Listen for shortcut to stop
-  useEffect(() => {
-    const unlisten = listen("scroll-capture-stop", () => {
-      setIsStopped(true);
-    });
-    return () => { unlisten.then(fn => fn()); };
+  // Centralized close function to prevent double-close
+  const closeAndCancel = useCallback(async () => {
+    if (isClosingRef.current) return;
+    isClosingRef.current = true;
+    console.log("[ScrollOverlay] Closing...");
+    try {
+      await invoke("cancel_scroll_capture");
+    } catch { /* ignore */ }
+    try {
+      await getCurrentWindow().destroy();
+    } catch { /* ignore */ }
   }, []);
 
-  // ESC to cancel
+  // Listen for global shortcut event (backend sends this when ESC is pressed globally)
   useEffect(() => {
-    const handleKeyDown = async (e: KeyboardEvent) => {
+    const unlisten = listen("scroll-capture-stop", closeAndCancel);
+    return () => { unlisten.then(fn => fn()); };
+  }, [closeAndCancel]);
+
+  // LOCAL ESC key listener as fallback (for when global shortcut doesn't work)
+  // This is needed because scroll-overlay is a non-activating panel
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        try {
-          await invoke("cancel_scroll_capture");
-        } catch { /* ignore */ }
-        await getCurrentWindow().destroy();
+        console.log("[ScrollOverlay] Local ESC detected");
+        closeAndCancel();
       }
     };
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, []);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [closeAndCancel]);
 
   const handleMouseMove = useCallback((e: MouseEvent) => {
     const edge = draggingRef.current;
@@ -159,14 +170,8 @@ export default function ScrollOverlay() {
     }
   };
 
-  const handleCancel = async () => {
-    try {
-      await invoke("cancel_scroll_capture");
-    } catch {
-      // ignore
-    }
-    await getCurrentWindow().destroy();
-  };
+  // handleCancel uses the same closeAndCancel to prevent double-close
+  const handleCancel = closeAndCancel;
 
   const startResize = (direction: "North" | "South" | "East" | "West" | "NorthEast" | "NorthWest" | "SouthEast" | "SouthWest") => async (e: React.MouseEvent) => {
     e.preventDefault();

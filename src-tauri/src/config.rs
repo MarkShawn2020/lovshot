@@ -92,10 +92,21 @@ impl Default for AppConfig {
     fn default() -> Self {
         let mut shortcuts = HashMap::new();
 
+        // Static screenshot (frozen screen) - default Alt+A
+        shortcuts.insert(
+            "screenshot_static".to_string(),
+            vec![ShortcutConfig {
+                modifiers: vec!["Alt".to_string()],
+                key: "A".to_string(),
+                enabled: true,
+            }],
+        );
+
+        // Dynamic screenshot (live screen) - Shift+Alt+A
         shortcuts.insert(
             "screenshot".to_string(),
             vec![ShortcutConfig {
-                modifiers: vec!["Alt".to_string()],
+                modifiers: vec!["Shift".to_string(), "Alt".to_string()],
                 key: "A".to_string(),
                 enabled: true,
             }],
@@ -132,6 +143,15 @@ impl Default for AppConfig {
         // stops recording when pressed again. This config is for ADDITIONAL stop keys.
         shortcuts.insert(
             "stop_recording".to_string(),
+            vec![ShortcutConfig {
+                modifiers: vec![],
+                key: "Escape".to_string(),
+                enabled: true,
+            }],
+        );
+
+        shortcuts.insert(
+            "stop_scroll".to_string(),
             vec![ShortcutConfig {
                 modifiers: vec![],
                 key: "Escape".to_string(),

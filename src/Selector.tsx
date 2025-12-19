@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
-type Mode = "image" | "gif" | "video" | "scroll";
+type Mode = "image" | "staticimage" | "gif" | "video" | "scroll";
 type ResizeDirection = "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw" | null;
 
 interface SelectionRect {
@@ -33,6 +33,7 @@ export default function Selector() {
   const [currentTitlebarHeight, setCurrentTitlebarHeight] = useState(0);
   const [originalWindowInfo, setOriginalWindowInfo] = useState<WindowInfo | null>(null);
   const [scrollCaptureEnabled, setScrollCaptureEnabled] = useState(false);
+  const [screenSnapshot, setScreenSnapshot] = useState<string | null>(null);
 
   const startPos = useRef({ x: 0, y: 0 });
   const startRect = useRef<SelectionRect | null>(null);
@@ -50,6 +51,15 @@ export default function Selector() {
       console.log("[Selector] get_pending_mode 返回:", pendingMode);
       if (pendingMode) {
         setMode(pendingMode);
+        // For static mode, fetch the pre-captured screenshot
+        if (pendingMode === "staticimage") {
+          invoke<string | null>("get_screen_snapshot").then((snapshot) => {
+            if (snapshot) {
+              console.log("[Selector] 获取到静态截图");
+              setScreenSnapshot(snapshot);
+            }
+          });
+        }
         invoke("clear_pending_mode");
       }
     });
@@ -110,10 +120,13 @@ export default function Selector() {
 
     await invoke("set_region", { region });
 
-    if (mode === "image") {
+    if (mode === "image" || mode === "staticimage") {
       const win = getCurrentWindow();
       await win.hide();
-      await new Promise((r) => setTimeout(r, 50));
+      // Static mode doesn't need delay since we use cached screenshot
+      if (mode === "image") {
+        await new Promise((r) => setTimeout(r, 50));
+      }
       await invoke("save_screenshot");
       await win.close();
     } else if (mode === "gif") {
@@ -326,14 +339,15 @@ export default function Selector() {
 
   // Keyboard shortcuts
   useEffect(() => {
+    const staticMode = mode === "staticimage";
     const handleKeyDown = async (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         await closeWindow();
-      } else if (e.key === "s" || e.key === "S") {
+      } else if ((e.key === "s" || e.key === "S") && !staticMode) {
         setMode("image");
-      } else if (e.key === "g" || e.key === "G") {
+      } else if ((e.key === "g" || e.key === "G") && !staticMode) {
         setMode("gif");
-      } else if ((e.key === "l" || e.key === "L") && scrollCaptureEnabled) {
+      } else if ((e.key === "l" || e.key === "L") && scrollCaptureEnabled && !staticMode) {
         setMode("scroll");
       } else if (e.key === "t" || e.key === "T") {
         setExcludeTitlebar((prev) => !prev);
@@ -344,7 +358,7 @@ export default function Selector() {
 
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [selectionRect, doCapture, closeWindow, scrollCaptureEnabled]);
+  }, [selectionRect, doCapture, closeWindow, scrollCaptureEnabled, mode]);
 
   const toolbarStyle: React.CSSProperties = selectionRect
     ? {
@@ -356,6 +370,7 @@ export default function Selector() {
   const showCrosshair = showHint && !isSelecting && !showToolbar && mousePos;
   // 窗口高亮在拖拽时保持显示作为参考，只有确认选区后才消失
   const showWindowHighlight = !showToolbar && !selectionRect && hoveredWindow;
+  const isStaticMode = mode === "staticimage";
 
   return (
     <div
@@ -363,6 +378,7 @@ export default function Selector() {
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
+      style={isStaticMode && screenSnapshot ? { background: `url(${screenSnapshot}) no-repeat center/cover` } : undefined}
     >
       {showWindowHighlight && (
         <div
@@ -440,25 +456,29 @@ export default function Selector() {
       {showToolbar && (
         <div id="toolbar" className="toolbar" style={toolbarStyle}>
           <button
-            className={`toolbar-btn ${mode === "image" ? "active" : ""}`}
-            onClick={() => setMode("image")}
-            title="Screenshot (S)"
+            className={`toolbar-btn ${mode === "image" || mode === "staticimage" ? "active" : ""}`}
+            onClick={isStaticMode ? undefined : () => setMode("image")}
+            disabled={isStaticMode}
+            style={isStaticMode ? { cursor: "default" } : undefined}
+            title={isStaticMode ? "Static Screenshot" : "Screenshot (S)"}
           >
             S
           </button>
           <button
             className={`toolbar-btn ${mode === "gif" ? "active" : ""}`}
-            onClick={() => setMode("gif")}
-            title="Record GIF (G)"
+            onClick={isStaticMode ? undefined : () => setMode("gif")}
+            disabled={isStaticMode}
+            style={isStaticMode ? { opacity: 0.4, cursor: "not-allowed" } : undefined}
+            title={isStaticMode ? "Not available in static mode" : "Record GIF (G)"}
           >
             G
           </button>
           <button
             className={`toolbar-btn ${mode === "scroll" ? "active" : ""}`}
-            onClick={scrollCaptureEnabled ? () => setMode("scroll") : undefined}
-            disabled={!scrollCaptureEnabled}
-            style={scrollCaptureEnabled ? undefined : { opacity: 0.4, cursor: "not-allowed" }}
-            title={scrollCaptureEnabled ? "Scroll Capture (L)" : "Scroll Capture (L) - Enable in Settings"}
+            onClick={scrollCaptureEnabled && !isStaticMode ? () => setMode("scroll") : undefined}
+            disabled={!scrollCaptureEnabled || isStaticMode}
+            style={!scrollCaptureEnabled || isStaticMode ? { opacity: 0.4, cursor: "not-allowed" } : undefined}
+            title={isStaticMode ? "Not available in static mode" : scrollCaptureEnabled ? "Scroll Capture (L)" : "Scroll Capture (L) - Enable in Settings"}
           >
             L
           </button>

@@ -92,6 +92,7 @@ pub fn get_action_for_shortcut(shortcut: &Shortcut) -> Option<CaptureMode> {
                 if &parsed == shortcut {
                     return match action.as_str() {
                         "screenshot" => Some(CaptureMode::Image),
+                        "screenshot_static" => Some(CaptureMode::StaticImage),
                         "gif" => Some(CaptureMode::Gif),
                         "video" => Some(CaptureMode::Video),
                         "scroll" => Some(CaptureMode::Scroll),
@@ -145,8 +146,9 @@ fn is_shortcut_for_action(shortcut: &Shortcut, action: &str) -> bool {
 }
 
 /// Register shortcuts from config (called at startup and when config changes)
-/// NOTE: stop_recording shortcuts are NOT registered here - they are dynamically
-/// registered/unregistered when recording starts/stops to avoid hijacking ESC globally
+/// NOTE: stop_recording and stop_scroll shortcuts are NOT registered here - they are
+/// dynamically registered/unregistered when recording/scroll capture starts/stops
+/// to avoid hijacking ESC globally
 pub fn register_shortcuts_from_config(app: &AppHandle) -> Result<(), String> {
     let config = config::load_config();
 
@@ -155,8 +157,9 @@ pub fn register_shortcuts_from_config(app: &AppHandle) -> Result<(), String> {
     }
 
     for (action, shortcuts) in &config.shortcuts {
-        // Skip stop_recording - it's dynamically registered only during recording
-        if action == "stop_recording" {
+        // Skip stop_recording and stop_scroll - they are dynamically registered
+        // only during recording/scroll capture to avoid hijacking ESC globally
+        if action == "stop_recording" || action == "stop_scroll" {
             continue;
         }
 
@@ -226,6 +229,46 @@ pub fn unregister_stop_shortcuts(app: &AppHandle) {
                     eprintln!("[shortcuts] Failed to unregister stop shortcut ({}): {}", shortcut_str, e);
                 } else {
                     println!("[shortcuts] Unregistered stop_recording -> {}", shortcut_str);
+                }
+            }
+        }
+    }
+}
+
+/// Register stop_scroll shortcuts (call when scroll capture starts)
+pub fn register_stop_scroll_shortcuts(app: &AppHandle) {
+    let config = config::load_config();
+    if let Some(shortcuts) = config.shortcuts.get("stop_scroll") {
+        for cfg in shortcuts {
+            if !cfg.enabled {
+                continue;
+            }
+            let shortcut_str = cfg.to_shortcut_string();
+            if let Ok(shortcut) = parse_shortcut(&shortcut_str) {
+                if let Err(e) = app.global_shortcut().register(shortcut) {
+                    eprintln!("[shortcuts] Failed to register stop_scroll shortcut ({}): {}", shortcut_str, e);
+                } else {
+                    println!("[shortcuts] Registered stop_scroll -> {}", shortcut_str);
+                }
+            }
+        }
+    }
+}
+
+/// Unregister stop_scroll shortcuts (call when scroll capture stops)
+pub fn unregister_stop_scroll_shortcuts(app: &AppHandle) {
+    let config = config::load_config();
+    if let Some(shortcuts) = config.shortcuts.get("stop_scroll") {
+        for cfg in shortcuts {
+            if !cfg.enabled {
+                continue;
+            }
+            let shortcut_str = cfg.to_shortcut_string();
+            if let Ok(shortcut) = parse_shortcut(&shortcut_str) {
+                if let Err(e) = app.global_shortcut().unregister(shortcut) {
+                    eprintln!("[shortcuts] Failed to unregister stop_scroll shortcut ({}): {}", shortcut_str, e);
+                } else {
+                    println!("[shortcuts] Unregistered stop_scroll -> {}", shortcut_str);
                 }
             }
         }

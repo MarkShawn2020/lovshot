@@ -8,6 +8,8 @@ use tauri_plugin_global_shortcut::ShortcutState;
 #[cfg(target_os = "macos")]
 mod macos_menu_tracking;
 #[cfg(target_os = "macos")]
+mod native_screenshot;
+#[cfg(target_os = "macos")]
 mod window_detect;
 
 mod capture;
@@ -22,7 +24,7 @@ mod types;
 mod windows;
 
 use commands::open_selector_internal;
-use shortcuts::{get_action_for_shortcut, is_show_main_shortcut, is_stop_recording_shortcut, register_shortcuts_from_config, unregister_stop_shortcuts};
+use shortcuts::{get_action_for_shortcut, is_show_main_shortcut, is_stop_recording_shortcut, register_shortcuts_from_config, unregister_stop_shortcuts, unregister_stop_scroll_shortcuts};
 use state::{AppState, SharedState};
 use tray::{build_tray_menu, load_tray_icon};
 pub use types::*;
@@ -67,19 +69,50 @@ pub fn run() {
                     if is_recording {
                         println!("[DEBUG][shortcut] 停止录制");
                         state_for_shortcut.lock().unwrap().recording = false;
-                        // Unregister stop shortcuts since recording ended
-                        unregister_stop_shortcuts(app);
+                        // IMPORTANT: Unregister in spawned thread to avoid deadlock
+                        let app_clone = app.clone();
+                        std::thread::spawn(move || {
+                            std::thread::sleep(std::time::Duration::from_millis(10));
+                            unregister_stop_shortcuts(&app_clone);
+                        });
                         return;
                     }
 
-                    // Check if scroll capturing - if so, stop and allow new captures
+                    // Check if scroll-overlay window exists - if so, close it directly
+                    // This is more reliable than depending on frontend event listeners
                     {
-                        let mut s = state_for_shortcut.lock().unwrap();
-                        if s.scroll_capturing {
-                            println!("[DEBUG][shortcut] 停止滚动截图");
-                            s.scroll_capturing = false;
-                            drop(s);
-                            let _ = app.emit("scroll-capture-stop", ());
+                        let scroll_overlay_exists = app.get_webview_window("scroll-overlay").is_some();
+
+                        if scroll_overlay_exists {
+                            println!("[DEBUG][shortcut] 检测到滚动截图窗口，直接关闭");
+
+                            // Try to clean up state (non-blocking)
+                            if let Ok(mut s) = state_for_shortcut.try_lock() {
+                                s.scroll_capturing = false;
+                                s.scroll_frames.clear();
+                                s.scroll_offsets.clear();
+                                s.scroll_stitched = None;
+                            }
+
+                            // IMPORTANT: Do NOT call unregister() here - it causes deadlock!
+                            // The shortcut handler callback cannot call unregister() on itself.
+                            // Instead, unregister in a spawned thread after returning.
+                            let app_clone = app.clone();
+                            std::thread::spawn(move || {
+                                // Small delay to ensure handler has returned
+                                std::thread::sleep(std::time::Duration::from_millis(10));
+                                crate::shortcuts::unregister_stop_scroll_shortcuts(&app_clone);
+                            });
+
+                            // Close windows directly from backend
+                            if let Some(win) = app.get_webview_window("scroll-overlay") {
+                                let _ = win.destroy();
+                            }
+                            if let Some(win) = app.get_webview_window("recording-overlay") {
+                                let _ = win.destroy();
+                            }
+
+                            println!("[DEBUG][shortcut] 滚动截图窗口已关闭");
                             return;
                         }
                     }

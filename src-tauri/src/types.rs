@@ -82,7 +82,8 @@ pub enum GifLoopMode {
 #[serde(rename_all = "lowercase")]
 pub enum CaptureMode {
     #[default]
-    Image,
+    Image,        // Dynamic screenshot (live screen)
+    StaticImage,  // Static screenshot (frozen screen)
     Gif,
     Video,
     Scroll,

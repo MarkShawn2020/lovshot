@@ -7,10 +7,11 @@ use crate::types::{CaptureMode, Region, WindowInfo};
 use crate::windows::{open_permission_window, set_activation_policy};
 
 #[cfg(target_os = "macos")]
-use crate::window_detect;
-
+use crate::native_screenshot;
 #[cfg(target_os = "macos")]
 use crate::permission;
+#[cfg(target_os = "macos")]
+use crate::window_detect;
 
 #[tauri::command]
 pub fn open_selector(app: AppHandle, state: tauri::State<SharedState>) -> Result<(), String> {
@@ -244,6 +245,24 @@ pub fn open_selector_internal(app: AppHandle) -> Result<(), String> {
     let height = screen.display_info.height;
     let scale = screen.display_info.scale_factor;
 
+    // For static screenshot mode, capture using native API (fast!)
+    let is_static_mode = matches!(pending_mode, Some(CaptureMode::StaticImage));
+
+    #[cfg(target_os = "macos")]
+    let cg_image = if is_static_mode {
+        let start = std::time::Instant::now();
+        let img = native_screenshot::capture_cgimage();
+        println!("[DEBUG][open_selector_internal] 原生截屏 {}ms", start.elapsed().as_millis());
+        img
+    } else {
+        // Clear cached snapshot for dynamic mode
+        let state = app.state::<SharedState>();
+        let mut s = state.lock().unwrap();
+        s.screen_snapshot = None;
+        s.cached_snapshot = None;
+        None
+    };
+
     {
         let state = app.state::<SharedState>();
         let mut s = state.lock().unwrap();
@@ -277,10 +296,32 @@ pub fn open_selector_internal(app: AppHandle) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         use objc::{msg_send, sel, sel_impl};
+
+        // Set window level
         let _ = win.with_webview(|webview| unsafe {
             let ns_window = webview.ns_window() as *mut objc::runtime::Object;
             let _: () = msg_send![ns_window, setLevel: 1000_i64];
         });
+
+        // Set background image for static mode (hardware accelerated)
+        if let Some(ref cg_img) = cg_image {
+            let start = std::time::Instant::now();
+            let cg_ptr = cg_img.as_send_ptr(); // Extract Send-able pointer for 'static closure
+            let _ = win.with_webview(move |webview| unsafe {
+                let ns_window = webview.ns_window() as *mut objc::runtime::Object;
+                native_screenshot::set_window_background_cgimage_raw(ns_window, cg_ptr);
+            });
+            println!("[DEBUG][open_selector_internal] 设置背景 {}ms", start.elapsed().as_millis());
+
+            // Convert to RgbaImage for cropping (in background)
+            let convert_start = std::time::Instant::now();
+            if let Some(rgba) = native_screenshot::cgimage_to_rgba(cg_img) {
+                let state = app.state::<SharedState>();
+                let mut s = state.lock().unwrap();
+                s.cached_snapshot = Some(rgba);
+                println!("[DEBUG][open_selector_internal] 转换RGBA {}ms", convert_start.elapsed().as_millis());
+            }
+        }
     }
 
     Ok(())

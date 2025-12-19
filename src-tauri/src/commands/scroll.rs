@@ -9,6 +9,7 @@ use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, Webview
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
 use crate::fft_match::detect_scroll_delta_fft;
+use crate::shortcuts::register_stop_scroll_shortcuts;
 use crate::state::SharedState;
 use crate::tray::create_recording_overlay;
 use crate::types::{CropEdges, Region, ScrollCaptureProgress};
@@ -105,15 +106,20 @@ pub fn start_scroll_capture(
 pub fn capture_scroll_frame_auto(
     state: tauri::State<SharedState>,
 ) -> Result<Option<ScrollCaptureProgress>, String> {
-    let region = {
+    // Step 1: Get required data with minimal lock time
+    let (region, last_frame, scroll_stitched) = {
         let s = state.lock().unwrap();
         if !s.scroll_capturing {
             return Err("Not in scroll capture mode".to_string());
         }
-        s.region.clone().ok_or("No region selected")?
-    };
+        (
+            s.region.clone().ok_or("No region selected")?,
+            s.scroll_frames.last().cloned().ok_or("No previous frame")?,
+            s.scroll_stitched.clone().ok_or("No stitched image")?,
+        )
+    }; // Lock released here
 
-    // Capture current frame
+    // Step 2: Perform expensive operations WITHOUT holding the lock
     let screens = Screen::all().map_err(|e| e.to_string())?;
     if screens.is_empty() {
         return Err("No screens found".to_string());
@@ -127,39 +133,40 @@ pub fn capture_scroll_frame_auto(
     let new_frame = RgbaImage::from_raw(captured.width(), captured.height(), captured.into_raw())
         .ok_or("Failed to convert image")?;
 
-    let mut s = state.lock().unwrap();
-
-    // Get last frame for comparison
-    let last_frame = s.scroll_frames.last().ok_or("No previous frame")?;
-
-    // Detect scroll direction and amount using FFT-based matching
-    let scroll_delta = detect_scroll_delta_fft(last_frame, &new_frame);
+    // Detect scroll direction and amount using FFT-based matching (expensive!)
+    let scroll_delta = detect_scroll_delta_fft(&last_frame, &new_frame);
 
     // If no significant scroll detected, don't refresh preview (keeps UI stable)
     if scroll_delta.abs() < 10 {
         return Ok(None);
     }
 
-    // Stitch the image
-    let stitched = stitch_scroll_image(
-        s.scroll_stitched.as_ref().unwrap(),
-        &new_frame,
-        scroll_delta,
-    )?;
+    // Stitch the image (expensive!)
+    let stitched = stitch_scroll_image(&scroll_stitched, &new_frame, scroll_delta)?;
 
     // Calculate new cumulative offset
-    let last_offset = *s.scroll_offsets.last().unwrap_or(&0);
+    let last_offset = {
+        let s = state.lock().unwrap();
+        *s.scroll_offsets.last().unwrap_or(&0)
+    };
     let new_offset = last_offset + scroll_delta;
+
+    // Generate preview (expensive!)
+    let preview = generate_preview_base64(&stitched, 600)?;
+
+    // Step 3: Update state with minimal lock time, check if cancelled
+    let mut s = state.lock().unwrap();
+    if !s.scroll_capturing {
+        // Capture was cancelled while we were processing
+        return Err("Scroll capture was cancelled".to_string());
+    }
 
     s.scroll_frames.push(new_frame);
     s.scroll_offsets.push(new_offset);
-    s.scroll_stitched = Some(stitched.clone());
+    s.scroll_stitched = Some(stitched);
 
     let frame_count = s.scroll_frames.len();
-    let total_height = stitched.height();
-
-    // Generate preview
-    let preview = generate_preview_base64(&stitched, 600)?;
+    let total_height = s.scroll_stitched.as_ref().unwrap().height();
 
     Ok(Some(ScrollCaptureProgress {
         frame_count,
@@ -173,18 +180,22 @@ pub fn capture_scroll_frame_auto(
 pub fn get_scroll_preview(
     state: tauri::State<SharedState>,
 ) -> Result<ScrollCaptureProgress, String> {
-    let s = state.lock().unwrap();
+    // Get data with minimal lock time
+    let (frame_count, total_height, stitched) = {
+        let s = state.lock().unwrap();
+        match s.scroll_stitched.as_ref() {
+            Some(img) => (s.scroll_frames.len(), img.height(), img.clone()),
+            None => return Err("No scroll capture in progress".to_string()),
+        }
+    }; // Lock released here
 
-    if let Some(ref stitched) = s.scroll_stitched {
-        let preview = generate_preview_base64(stitched, 600)?;
-        Ok(ScrollCaptureProgress {
-            frame_count: s.scroll_frames.len(),
-            total_height: stitched.height(),
-            preview_base64: preview,
-        })
-    } else {
-        Err("No scroll capture in progress".to_string())
-    }
+    // Generate preview WITHOUT holding the lock
+    let preview = generate_preview_base64(&stitched, 600)?;
+    Ok(ScrollCaptureProgress {
+        frame_count,
+        total_height,
+        preview_base64: preview,
+    })
 }
 
 /// Copy scroll capture to clipboard
@@ -470,6 +481,11 @@ pub fn open_scroll_overlay(
         s.region = Some(region.clone());
     }
 
+    // Register stop_scroll shortcuts so user can stop with ESC (or configured key)
+    println!("[DEBUG][open_scroll_overlay] 注册 stop_scroll 快捷键");
+    register_stop_scroll_shortcuts(&app);
+    println!("[DEBUG][open_scroll_overlay] 快捷键注册完成");
+
     // Show region indicator overlay FIRST (reuse recording overlay window in static mode)
     // This ensures the selection border appears immediately
     create_recording_overlay(&app, &region, true);
@@ -505,19 +521,25 @@ pub fn open_scroll_overlay(
             return;
         }
 
-        // Emit preview data
-        let s = state_clone.lock().unwrap();
-        if let Some(ref stitched) = s.scroll_stitched {
-            if let Ok(preview) = generate_preview_base64(stitched, 600) {
-                let _ = app_clone.emit(
-                    "scroll-preview-update",
-                    ScrollCaptureProgress {
-                        frame_count: s.scroll_frames.len(),
-                        total_height: stitched.height(),
-                        preview_base64: preview,
-                    },
-                );
+        // Get data with minimal lock time
+        let (frame_count, total_height, stitched) = {
+            let s = state_clone.lock().unwrap();
+            match s.scroll_stitched.as_ref() {
+                Some(img) => (s.scroll_frames.len(), img.height(), img.clone()),
+                None => return,
             }
+        }; // Lock released here
+
+        // Generate preview WITHOUT holding the lock (expensive operation)
+        if let Ok(preview) = generate_preview_base64(&stitched, 600) {
+            let _ = app_clone.emit(
+                "scroll-preview-update",
+                ScrollCaptureProgress {
+                    frame_count,
+                    total_height,
+                    preview_base64: preview,
+                },
+            );
         }
     });
 

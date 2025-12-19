@@ -23,11 +23,13 @@ type EditingState = {
 } | null;
 
 const ACTION_LABELS: Record<string, string> = {
-  screenshot: "Screenshot",
+  screenshot_static: "Screenshot (Static)",
+  screenshot: "Screenshot (Dynamic)",
   gif: "Record GIF",
   stop_recording: "Stop GIF (extra)",
   video: "Record Video",
   scroll: "Scroll Capture",
+  stop_scroll: "Stop Scroll (extra)",
   show_main: "Open Main Panel",
 };
 
@@ -237,7 +239,7 @@ export default function Settings() {
     return <div className="settings-container">Loading...</div>;
   }
 
-  const actions = ["screenshot", "gif", "stop_recording", "scroll", "video", "show_main"];
+  const actions = ["screenshot_static", "screenshot", "gif", "stop_recording", "scroll", "stop_scroll", "video", "show_main"];
 
   return (
     <div className="settings-container" ref={containerRef} tabIndex={-1}>
@@ -250,7 +252,7 @@ export default function Settings() {
                 const shortcuts = config.shortcuts[action] || [];
                 const isEditingThisAction = editing?.action === action;
                 const isAdding = isEditingThisAction && editing?.index === -1;
-                const isDisabled = action === "scroll" && !config.scroll_capture_enabled;
+                const isDisabled = (action === "scroll" || action === "stop_scroll") && !config.scroll_capture_enabled;
 
                 return (
                   <div

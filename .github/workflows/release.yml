@@ -113,22 +113,20 @@ jobs:
           fi
           echo "name=$TAG" >> $GITHUB_OUTPUT
 
-          # Extract release notes from CHANGELOG.md
+          # Extract release notes from CHANGELOG.md using heredoc for multiline
           VERSION="${TAG#v}"
           if [ -f CHANGELOG.md ]; then
-            # Extract content between version header and next version header
-            NOTES=$(awk -v ver="$VERSION" '
-              /^## / {
-                if (found) exit
-                if ($2 == ver) { found=1; next }
-              }
-              found { print }
-            ' CHANGELOG.md)
-            # Escape for GitHub Actions output
-            NOTES="${NOTES//'%'/'%25'}"
-            NOTES="${NOTES//$'\n'/'%0A'}"
-            NOTES="${NOTES//$'\r'/'%0D'}"
-            echo "notes=$NOTES" >> $GITHUB_OUTPUT
+            {
+              echo 'notes<<EOF'
+              awk -v ver="$VERSION" '
+                /^## / {
+                  if (found) exit
+                  if ($2 == ver) { found=1; next }
+                }
+                found { print }
+              ' CHANGELOG.md
+              echo 'EOF'
+            } >> $GITHUB_OUTPUT
           fi
 
       - uses: tauri-apps/tauri-action@v0

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.16.0
+
+### Minor Changes
+
+- Performance and UX improvements
+
 ## 0.15.2
 
 ### New Features

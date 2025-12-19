@@ -73,7 +73,7 @@ export default function Preview() {
   if (isCaptionMode) {
     return (
       <div className="caption-container">
-        <div className="caption-image-wrapper">
+        <div className="caption-image-wrapper" data-tauri-drag-region>
           {path && <img src={convertFileSrc(path)} alt="Screenshot" />}
         </div>
         <div className="caption-input-area">
@@ -88,14 +88,8 @@ export default function Preview() {
             }}
             autoFocus
           />
-          <div className="caption-actions">
-            <span className="caption-hint">⌘+Enter 保存 · ESC 跳过</span>
-            <button className="caption-btn caption-btn-cancel" onClick={handleClose}>
-              跳过
-            </button>
-            <button className="caption-btn caption-btn-save" onClick={handleSave}>
-              保存
-            </button>
+          <div className="caption-shortcuts">
+            <kbd>↵</kbd> 换行 · <kbd>⌘</kbd><kbd>↵</kbd> 保存 · <kbd>esc</kbd> 跳过
           </div>
         </div>
       </div>

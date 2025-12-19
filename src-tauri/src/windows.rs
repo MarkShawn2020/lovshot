@@ -272,6 +272,8 @@ pub fn open_caption_window(app: &AppHandle, image_path: &str) -> Result<(), Stri
         .inner_size(win_w, win_h)
         .min_inner_size(360.0, 300.0)
         .resizable(true)
+        .decorations(false)
+        .transparent(true)
         .center()
         .focused(true)
         .build()

@@ -46,6 +46,13 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function formatSizeCompact(bytes: number): { value: string; unit: string } {
+  if (bytes < 1024) return { value: `${bytes}`, unit: "B" };
+  if (bytes < 1024 * 1024) return { value: (bytes / 1024).toFixed(1), unit: "K" };
+  if (bytes < 1024 * 1024 * 1024) return { value: (bytes / (1024 * 1024)).toFixed(1), unit: "M" };
+  return { value: (bytes / (1024 * 1024 * 1024)).toFixed(1), unit: "G" };
+}
+
 function formatDate(timestamp: number): string {
   const date = new Date(timestamp * 1000);
   const now = new Date();
@@ -66,10 +73,13 @@ function App() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [filter, setFilter] = useState<FilterType>("all");
   const [selected, setSelected] = useState<HistoryItem | null>(null);
+  const [imageDimensions, setImageDimensions] = useState<{ width: number; height: number } | null>(null);
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
   const [isWideScreen, setIsWideScreen] = useState(window.innerWidth >= 700);
+  const [sidebarWidth, setSidebarWidth] = useState(window.innerWidth >= 1000 ? 320 : 280);
   const loaderRef = useRef<HTMLDivElement>(null);
   const didDragRef = useRef(false); // Track if a valid drag occurred
+  const isResizingRef = useRef(false);
 
   // Context menu state
   const [contextMenu, setContextMenu] = useState<{
@@ -86,11 +96,45 @@ function App() {
     currentY: number;
   } | null>(null);
 
+  // Clear image dimensions when selection changes
+  useEffect(() => {
+    setImageDimensions(null);
+  }, [selected?.path]);
+
   // Track screen width for gallery layout
   useEffect(() => {
     const handleResize = () => setIsWideScreen(window.innerWidth >= 700);
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  // Sidebar resize handlers
+  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isResizingRef.current = true;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  }, []);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizingRef.current) return;
+      const newWidth = Math.min(Math.max(200, e.clientX), 500);
+      setSidebarWidth(newWidth);
+    };
+    const handleMouseUp = () => {
+      if (isResizingRef.current) {
+        isResizingRef.current = false;
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+      }
+    };
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
   }, []);
 
   const loadStats = useCallback(async () => {
@@ -478,36 +522,34 @@ function App() {
   return (
     <main className={`dashboard ${isWideScreen ? "gallery-mode" : ""}`}>
       {/* Left Panel - List */}
-      <div className="gallery-list">
-        <div className="dashboard-header">
-          <div className="logo-section">
-            <h1>Lovshot</h1>
-            <span className="subtitle">Unified Screen Shotter</span>
-          </div>
-          <p className="shortcut-hint">
-            <kbd>⌥</kbd><kbd>A</kbd> 截图 · <kbd>⌥</kbd><kbd>G</kbd> GIF
-          </p>
-        </div>
-
+      <div className="gallery-list" style={isWideScreen ? { width: sidebarWidth } : undefined}>
         {stats && (
-          <div className="stats-grid">
-            <div className="stat-card">
-              <span className="stat-value">{stats.total_count}</span>
-              <span className="stat-label">总数</span>
+          <>
+            <div className="stats-compact" title="全部 | 截图 | GIF | 存储">
+              {stats.total_count} | {stats.screenshot_count} | {stats.gif_count} | {formatSizeCompact(stats.total_size).value}{formatSizeCompact(stats.total_size).unit}
             </div>
-            <div className="stat-card">
-              <span className="stat-value">{stats.screenshot_count}</span>
-              <span className="stat-label">截图</span>
+            <div className="stats-grid">
+              <div className="stat-card">
+                <span className="stat-value">{stats.total_count}</span>
+                <span className="stat-label">全部</span>
+              </div>
+              <div className="stat-card">
+                <span className="stat-value">{stats.screenshot_count}</span>
+                <span className="stat-label">截图</span>
+              </div>
+              <div className="stat-card">
+                <span className="stat-value">{stats.gif_count}</span>
+                <span className="stat-label">GIF</span>
+              </div>
+              <div className="stat-card">
+                <span className="stat-value">
+                  {formatSizeCompact(stats.total_size).value}
+                  <span className="stat-unit">{formatSizeCompact(stats.total_size).unit}</span>
+                </span>
+                <span className="stat-label">存储</span>
+              </div>
             </div>
-            <div className="stat-card">
-              <span className="stat-value">{stats.gif_count}</span>
-              <span className="stat-label">GIF</span>
-            </div>
-            <div className="stat-card">
-              <span className="stat-value">{formatSize(stats.total_size)}</span>
-              <span className="stat-label">存储</span>
-            </div>
-          </div>
+          </>
         )}
 
         <div className="history-section">
@@ -580,7 +622,17 @@ function App() {
             )}
           </div>
         </div>
+
+        <div className="sidebar-footer">
+          <span className="footer-brand">Lovshot</span>
+          <span className="footer-hint"><kbd>⌥</kbd><kbd>A</kbd> 截图 · <kbd>⌥</kbd><kbd>G</kbd> GIF</span>
+        </div>
       </div>
+
+      {/* Resizer */}
+      {isWideScreen && (
+        <div className="gallery-resizer" onMouseDown={handleResizeStart} />
+      )}
 
       {/* Right Panel - Preview (gallery mode only) */}
       {isWideScreen && (
@@ -592,11 +644,23 @@ function App() {
                   src={convertFileSrc(selected.path)}
                   alt={selected.filename}
                   className="preview-full-image"
+                  onLoad={(e) => {
+                    const img = e.currentTarget;
+                    setImageDimensions({ width: img.naturalWidth, height: img.naturalHeight });
+                  }}
                 />
               </div>
               <div className="preview-info">
                 <h3 className="preview-filename">{selected.filename}</h3>
                 <div className="preview-meta">
+                  {imageDimensions && (
+                    <>
+                      <span className="meta-copyable" onClick={() => navigator.clipboard.writeText(`${imageDimensions.width}x${imageDimensions.height}`)} title="点击复制">
+                        {imageDimensions.width} × {imageDimensions.height}
+                      </span>
+                      <span>·</span>
+                    </>
+                  )}
                   <span>{formatSize(selected.size)}</span>
                   <span>·</span>
                   <span>{formatDate(selected.modified)}</span>
@@ -605,12 +669,18 @@ function App() {
                     {selected.file_type === "gif" ? "GIF" : "Screenshot"}
                   </span>
                 </div>
+                {selected.description && (
+                  <p className="preview-description">{selected.description}</p>
+                )}
                 <div className="preview-actions">
-                  <button className="btn-action" onClick={handleOpenExternal}>
+                  <button className="btn-action" onClick={() => invoke("copy_image_to_clipboard", { path: selected.path })}>
+                    复制
+                  </button>
+                  <button className="btn-action btn-secondary" onClick={handleOpenExternal}>
                     打开
                   </button>
                   <button className="btn-action btn-secondary" onClick={handleRevealInFinder}>
-                    在 Finder 中显示
+                    显示
                   </button>
                 </div>
               </div>

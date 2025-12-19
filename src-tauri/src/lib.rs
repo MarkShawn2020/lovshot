@@ -188,6 +188,7 @@ pub fn run() {
             commands::reveal_in_folder,
             commands::delete_file,
             commands::open_caption_editor,
+            commands::copy_image_to_clipboard,
             // Scroll capture commands
             commands::start_scroll_capture,
             commands::capture_scroll_frame_auto,

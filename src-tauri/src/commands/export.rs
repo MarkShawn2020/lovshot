@@ -998,3 +998,12 @@ pub fn delete_file(path: String) -> Result<(), String> {
 pub fn open_caption_editor(app: AppHandle, path: String) -> Result<(), String> {
     crate::windows::open_caption_window(&app, &path)
 }
+
+#[tauri::command]
+pub fn copy_image_to_clipboard(app: AppHandle, path: String) -> Result<(), String> {
+    let img = image::open(&path).map_err(|e| format!("Failed to open image: {}", e))?;
+    let rgba = img.to_rgba8();
+    let tauri_image = tauri::image::Image::new_owned(rgba.as_raw().to_vec(), rgba.width(), rgba.height());
+    app.clipboard().write_image(&tauri_image).map_err(|e| format!("Failed to copy to clipboard: {}", e))?;
+    Ok(())
+}

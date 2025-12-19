@@ -64,22 +64,37 @@ pub fn capture_cgimage() -> Option<CGImageRef> {
 /// Set window background to CGImage using NSImageView (hardware accelerated)
 /// Takes CGImagePtr for use in 'static Send closures
 pub unsafe fn set_window_background_cgimage_raw(ns_window: *mut Object, cg_image_ptr: CGImagePtr) {
-    // Create NSImage from CGImage
-    let ns_image: *mut Object = msg_send![class!(NSImage), alloc];
-
     #[repr(C)]
     struct NSSize { width: f64, height: f64 }
-    let zero_size = NSSize { width: 0.0, height: 0.0 };
-
-    let ns_image: *mut Object = msg_send![ns_image, initWithCGImage:cg_image_ptr.0 size:zero_size];
-
-    // Get content view and its frame
-    let content_view: *mut Object = msg_send![ns_window, contentView];
 
     #[repr(C)]
     #[derive(Copy, Clone)]
     struct NSRect { x: f64, y: f64, width: f64, height: f64 }
-    let frame: NSRect = msg_send![content_view, frame];
+
+    // Get window's backing scale factor (2.0 on Retina)
+    let backing_scale: f64 = msg_send![ns_window, backingScaleFactor];
+
+    // Get CGImage pixel dimensions
+    let pixel_width = CGImageGetWidth(cg_image_ptr.0) as f64;
+    let pixel_height = CGImageGetHeight(cg_image_ptr.0) as f64;
+
+    // Calculate logical point size (pixels / scale)
+    let img_size = NSSize {
+        width: pixel_width / backing_scale,
+        height: pixel_height / backing_scale
+    };
+
+    println!("[native_screenshot] CGImage: {}x{} px, scale: {}, NSImage size: {}x{} pt",
+             pixel_width, pixel_height, backing_scale, img_size.width, img_size.height);
+
+    let ns_image: *mut Object = msg_send![class!(NSImage), alloc];
+    let ns_image: *mut Object = msg_send![ns_image, initWithCGImage:cg_image_ptr.0 size:img_size];
+
+    // Get content view
+    let content_view: *mut Object = msg_send![ns_window, contentView];
+    let frame: NSRect = msg_send![content_view, bounds];
+
+    println!("[native_screenshot] content view bounds: {}x{} pt", frame.width, frame.height);
 
     // Create NSImageView
     let image_view: *mut Object = msg_send![class!(NSImageView), alloc];

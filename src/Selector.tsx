@@ -127,7 +127,7 @@ export default function Selector() {
       if (mode === "image") {
         await new Promise((r) => setTimeout(r, 50));
       }
-      await invoke("save_screenshot");
+      await invoke("save_screenshot", { useCached: mode === "staticimage" });
       await win.close();
     } else if (mode === "gif") {
       await invoke("start_recording");

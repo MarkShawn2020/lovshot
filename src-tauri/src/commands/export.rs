@@ -188,27 +188,26 @@ pub fn save_screenshot(
     app: AppHandle,
     state: tauri::State<SharedState>,
     scale: Option<f32>,
+    use_cached: Option<bool>,
 ) -> Result<String, String> {
-    use crate::types::CaptureMode;
-
     println!("[DEBUG][save_screenshot] ====== 被调用 ======");
     let s = state.lock().unwrap();
     let region = s.region.clone().ok_or("No region selected")?;
     let output_scale = scale.unwrap_or(1.0).clamp(0.1, 1.0);
-    let pending_mode = s.pending_mode;
     let cached_snapshot = s.cached_snapshot.clone();
     let screen_scale = s.screen_scale;
     let screen_x = s.screen_x;
     let screen_y = s.screen_y;
+    let is_static_mode = use_cached.unwrap_or(false) && cached_snapshot.is_some();
     println!(
-        "[DEBUG][save_screenshot] region: x={}, y={}, w={}, h={}, scale={}, mode={:?}",
-        region.x, region.y, region.width, region.height, output_scale, pending_mode
+        "[DEBUG][save_screenshot] region: x={}, y={}, w={}, h={}, scale={}, static={}",
+        region.x, region.y, region.width, region.height, output_scale, is_static_mode
     );
     drop(s);
 
     // Static mode: crop from cached snapshot
     // Dynamic mode: capture live screen
-    let captured_rgba = if matches!(pending_mode, Some(CaptureMode::StaticImage)) {
+    let captured_rgba = if is_static_mode {
         if let Some(ref snapshot) = cached_snapshot {
             println!("[DEBUG][save_screenshot] 静态模式，从缓存截图裁剪");
             // Convert logical pixels to physical pixels

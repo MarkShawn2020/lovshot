@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.14.2
+
+### Patch Changes
+
+- chore: release v0.14.2
+
 ## 0.14.1
 
 ### Patch Changes

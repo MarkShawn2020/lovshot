@@ -337,17 +337,34 @@ export default function Selector() {
     }
   }, [excludeTitlebar, originalWindowInfo, showToolbar]);
 
+  // Toggle between static and dynamic screenshot mode
+  const toggleStaticMode = useCallback(async () => {
+    if (mode === "staticimage") {
+      // Static -> Dynamic: clear background and switch mode
+      await invoke("clear_screen_background");
+      setMode("image");
+    } else if (mode === "image") {
+      // Dynamic -> Static: set window background directly (GPU accelerated)
+      const success = await invoke<boolean>("capture_screen_now");
+      if (success) {
+        setMode("staticimage");
+      }
+    }
+  }, [mode]);
+
   // Keyboard shortcuts
   useEffect(() => {
-    const staticMode = mode === "staticimage";
     const handleKeyDown = async (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         await closeWindow();
-      } else if ((e.key === "s" || e.key === "S") && !staticMode) {
+      } else if (e.key === "Shift" && (mode === "image" || mode === "staticimage")) {
+        // Shift toggles between static and dynamic screenshot
+        await toggleStaticMode();
+      } else if ((e.key === "s" || e.key === "S") && mode !== "staticimage") {
         setMode("image");
-      } else if ((e.key === "g" || e.key === "G") && !staticMode) {
+      } else if ((e.key === "g" || e.key === "G") && mode !== "staticimage") {
         setMode("gif");
-      } else if ((e.key === "l" || e.key === "L") && scrollCaptureEnabled && !staticMode) {
+      } else if ((e.key === "l" || e.key === "L") && scrollCaptureEnabled && mode !== "staticimage") {
         setMode("scroll");
       } else if (e.key === "t" || e.key === "T") {
         setExcludeTitlebar((prev) => !prev);
@@ -358,7 +375,7 @@ export default function Selector() {
 
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [selectionRect, doCapture, closeWindow, scrollCaptureEnabled, mode]);
+  }, [selectionRect, doCapture, closeWindow, scrollCaptureEnabled, mode, toggleStaticMode]);
 
   const toolbarStyle: React.CSSProperties = selectionRect
     ? {

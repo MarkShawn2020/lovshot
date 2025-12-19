@@ -181,6 +181,70 @@ pub fn clear_pending_mode(state: tauri::State<SharedState>) {
     state.lock().unwrap().pending_mode = None;
 }
 
+/// Freeze screen as window background (for dynamic -> static mode switch)
+#[tauri::command]
+pub fn capture_screen_now(app: AppHandle, state: tauri::State<SharedState>) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        use tauri::Manager;
+
+        let win = match app.get_webview_window("selector") {
+            Some(w) => w,
+            None => return false,
+        };
+
+        let start = std::time::Instant::now();
+        let cg_image = match native_screenshot::capture_cgimage() {
+            Some(img) => img,
+            None => return false,
+        };
+        println!("[capture_screen_now] 截图 {}ms", start.elapsed().as_millis());
+
+        // Set as window background (GPU accelerated, no encoding needed)
+        let bg_start = std::time::Instant::now();
+        let cg_ptr = cg_image.as_send_ptr();
+        let _ = win.with_webview(move |webview| unsafe {
+            let ns_window = webview.ns_window() as *mut objc::runtime::Object;
+            native_screenshot::set_window_background_cgimage_raw(ns_window, cg_ptr);
+        });
+        println!("[capture_screen_now] 设置背景 {}ms", bg_start.elapsed().as_millis());
+
+        // Convert to RGBA and cache (for saving later)
+        let convert_start = std::time::Instant::now();
+        if let Some(rgba) = native_screenshot::cgimage_to_rgba(&cg_image) {
+            let mut s = state.lock().unwrap();
+            s.cached_snapshot = Some(rgba);
+            println!("[capture_screen_now] 转换RGBA {}ms", convert_start.elapsed().as_millis());
+        }
+
+        true
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        false
+    }
+}
+
+/// Clear window background (for static -> dynamic mode switch)
+#[tauri::command]
+pub fn clear_screen_background(app: AppHandle, state: tauri::State<SharedState>) {
+    #[cfg(target_os = "macos")]
+    {
+        use tauri::Manager;
+
+        if let Some(win) = app.get_webview_window("selector") {
+            let _ = win.with_webview(|webview| unsafe {
+                let ns_window = webview.ns_window() as *mut objc::runtime::Object;
+                native_screenshot::clear_window_background(ns_window);
+            });
+        }
+
+        // Clear cached snapshot
+        let mut s = state.lock().unwrap();
+        s.cached_snapshot = None;
+    }
+}
+
 /// Activate the window under cursor so it can receive scroll events
 #[tauri::command]
 pub fn activate_window_under_cursor() -> bool {

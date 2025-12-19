@@ -108,6 +108,24 @@ pub unsafe fn set_window_background_cgimage_raw(ns_window: *mut Object, cg_image
     let _: () = msg_send![content_view, addSubview:image_view positioned:-1_i64 relativeTo:nil];
 }
 
+/// Remove background image view from window (for static -> dynamic switch)
+pub unsafe fn clear_window_background(ns_window: *mut Object) {
+    let content_view: *mut Object = msg_send![ns_window, contentView];
+    let subviews: *mut Object = msg_send![content_view, subviews];
+    let count: usize = msg_send![subviews, count];
+
+    // Remove NSImageView subviews (iterate in reverse to safely remove)
+    for i in (0..count).rev() {
+        let subview: *mut Object = msg_send![subviews, objectAtIndex: i];
+        let class_name: *mut Object = msg_send![subview, className];
+        let class_str: *const i8 = msg_send![class_name, UTF8String];
+        let name = std::ffi::CStr::from_ptr(class_str).to_string_lossy();
+        if name == "NSImageView" {
+            let _: () = msg_send![subview, removeFromSuperview];
+        }
+    }
+}
+
 /// Convert CGImage to RgbaImage for cropping/saving
 pub fn cgimage_to_rgba(cg_image: &CGImageRef) -> Option<RgbaImage> {
     unsafe {

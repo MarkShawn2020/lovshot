@@ -489,6 +489,11 @@ export default function Selector() {
       const success = await invoke<boolean>("capture_screen_now");
       if (success) {
         setMode("staticimage");
+        // Refresh magnifier screenshot to show frozen screen
+        const snapshot = await invoke<string | null>("get_magnifier_snapshot");
+        if (snapshot) {
+          setMagnifierScreenshot(snapshot);
+        }
       }
     }
   }, [mode]);

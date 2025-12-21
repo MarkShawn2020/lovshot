@@ -217,9 +217,22 @@ pub fn capture_screen_now(app: AppHandle, state: tauri::State<SharedState>) -> b
         // Convert to RGBA and cache (for saving later)
         let convert_start = std::time::Instant::now();
         if let Some(rgba) = native_screenshot::cgimage_to_rgba(&cg_image) {
-            let mut s = state.lock().unwrap();
-            s.cached_snapshot = Some(rgba);
-            println!("[capture_screen_now] 转换RGBA {}ms", convert_start.elapsed().as_millis());
+            // Update magnifier_snapshot so magnifier shows the frozen screen
+            use base64::{engine::general_purpose::STANDARD, Engine};
+            let rgb_data: Vec<u8> = rgba.pixels().flat_map(|p| [p[0], p[1], p[2]]).collect();
+            let mut jpeg_data = Vec::new();
+            let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg_data, 80);
+            if encoder.encode(&rgb_data, rgba.width(), rgba.height(), image::ExtendedColorType::Rgb8).is_ok() {
+                let base64_str = STANDARD.encode(&jpeg_data);
+                let data_url = format!("data:image/jpeg;base64,{}", base64_str);
+                let mut s = state.lock().unwrap();
+                s.cached_snapshot = Some(rgba);
+                s.magnifier_snapshot = Some(data_url);
+            } else {
+                let mut s = state.lock().unwrap();
+                s.cached_snapshot = Some(rgba);
+            }
+            println!("[capture_screen_now] 转换RGBA+编码 {}ms", convert_start.elapsed().as_millis());
         }
 
         true

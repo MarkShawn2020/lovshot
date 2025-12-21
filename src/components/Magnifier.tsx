@@ -70,8 +70,10 @@ function MagnifierComponent({
 
     // 计算源图片中的采样区域（考虑设备像素比）
     // 截图是物理像素尺寸，光标位置是逻辑像素
-    const srcX = Math.floor(cursorX * devicePixelRatio - SOURCE_SIZE / 2);
-    const srcY = Math.floor(cursorY * devicePixelRatio - SOURCE_SIZE / 2);
+    // SOURCE_SIZE 是逻辑像素数量，需要转换为物理像素
+    const physicalSourceSize = SOURCE_SIZE * devicePixelRatio;
+    const srcX = Math.floor(cursorX * devicePixelRatio - physicalSourceSize / 2);
+    const srcY = Math.floor(cursorY * devicePixelRatio - physicalSourceSize / 2);
 
     // 禁用图像平滑以获得像素化效果
     ctx.imageSmoothingEnabled = false;
@@ -79,7 +81,7 @@ function MagnifierComponent({
     // 从源图片采样并放大绘制
     ctx.drawImage(
       img,
-      srcX, srcY, SOURCE_SIZE, SOURCE_SIZE,  // 源区域
+      srcX, srcY, physicalSourceSize, physicalSourceSize,  // 源区域（物理像素）
       0, 0, MAGNIFIER_SIZE, MAGNIFIER_SIZE   // 目标区域
     );
 

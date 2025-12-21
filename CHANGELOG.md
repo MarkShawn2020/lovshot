@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.18.1
+
+### Patch Changes
+
+- fix(annotation): 修复点击空白处创建重复文字标注的问题
+
 ## 0.18.0
 
 ### Minor Changes

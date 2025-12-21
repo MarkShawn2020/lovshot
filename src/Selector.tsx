@@ -35,6 +35,7 @@ export default function Selector() {
   const [mousePos, setMousePos] = useState<{ x: number; y: number } | null>(null);
   const [hoveredWindow, setHoveredWindow] = useState<SelectionRect | null>(null);
   const [resizeDir, setResizeDir] = useState<ResizeDirection>(null);
+  const [isDragging, setIsDragging] = useState(false);
   const [excludeTitlebar, setExcludeTitlebar] = useState(false);
   const [currentTitlebarHeight, setCurrentTitlebarHeight] = useState(0);
   const [originalWindowInfo, setOriginalWindowInfo] = useState<WindowInfo | null>(null);
@@ -266,6 +267,18 @@ export default function Selector() {
     [selectionRect]
   );
 
+  // Drag selection start
+  const handleDragStart = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (!selectionRect) return;
+      setIsDragging(true);
+      startPos.current = { x: e.clientX, y: e.clientY };
+      startRect.current = { ...selectionRect };
+    },
+    [selectionRect]
+  );
+
   // Mouse events
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     if ((e.target as HTMLElement).closest("#toolbar")) return;
@@ -290,6 +303,22 @@ export default function Selector() {
 
   const handleMouseMove = useCallback(
     (e: React.MouseEvent) => {
+      // Handle drag move
+      if (isDragging && startRect.current) {
+        const dx = e.clientX - startPos.current.x;
+        const dy = e.clientY - startPos.current.y;
+        const r = startRect.current;
+        const x = r.x + dx;
+        const y = r.y + dy;
+
+        setSelectionRect({ x, y, w: r.w, h: r.h });
+        if (selectionRef.current) {
+          selectionRef.current.style.left = `${x}px`;
+          selectionRef.current.style.top = `${y}px`;
+        }
+        return;
+      }
+
       // Handle resize drag
       if (resizeDir && startRect.current) {
         const dx = e.clientX - startPos.current.x;
@@ -348,15 +377,24 @@ export default function Selector() {
         sizeRef.current.style.display = "block";
       }
     },
-    [isSelecting, resizeDir]
+    [isSelecting, resizeDir, isDragging]
   );
 
   const handleMouseUp = useCallback(
     async (e: React.MouseEvent) => {
+      // Handle drag end
+      if (isDragging) {
+        setIsDragging(false);
+        startRect.current = null;
+        setOriginalWindowInfo(null); // Clear window info since user moved the selection
+        return;
+      }
+
       // Handle resize end
       if (resizeDir) {
         setResizeDir(null);
         startRect.current = null;
+        setOriginalWindowInfo(null); // Clear window info since user resized the selection
         return;
       }
 
@@ -411,7 +449,7 @@ export default function Selector() {
         }
       }
     },
-    [isSelecting, resizeDir, excludeTitlebar]
+    [isSelecting, resizeDir, isDragging, excludeTitlebar]
   );
 
   // Re-calculate selection when excludeTitlebar changes (only for window selections)
@@ -569,6 +607,22 @@ export default function Selector() {
       )}
       <div ref={selectionRef} className="selection" />
       <div ref={sizeRef} className="size-label" />
+
+      {showToolbar && selectionRect && !isEditing && (
+        <div
+          className="selection-drag-area"
+          style={{
+            position: "fixed",
+            left: selectionRect.x,
+            top: selectionRect.y,
+            width: selectionRect.w,
+            height: selectionRect.h,
+            cursor: "move",
+            zIndex: 11,
+          }}
+          onMouseDown={handleDragStart}
+        />
+      )}
 
       {showToolbar && selectionRect && (
         <>

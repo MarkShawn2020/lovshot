@@ -55,8 +55,6 @@ function MagnifierComponent({
       if (!pixels || pixels.length === 0) return;
 
       // 计算实际尺寸（像素数组是物理像素）
-      const dpr = window.devicePixelRatio || 1;
-      const physicalSize = Math.floor(SOURCE_SIZE * dpr);
       const actualSize = Math.sqrt(pixels.length / 4);
 
       // 创建 ImageData

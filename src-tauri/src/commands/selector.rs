@@ -148,6 +148,52 @@ pub fn get_magnifier_snapshot(state: tauri::State<SharedState>) -> Option<String
     state.lock().unwrap().magnifier_snapshot.clone()
 }
 
+/// Get pixels around cursor for magnifier (much faster than base64 whole screen)
+/// Returns RGBA pixels for a small region centered at (x, y)
+#[tauri::command]
+pub fn get_magnifier_pixels(
+    state: tauri::State<SharedState>,
+    x: i32,
+    y: i32,
+    size: u32,
+) -> Option<Vec<u8>> {
+    let s = state.lock().unwrap();
+    let img = s.cached_snapshot.as_ref()?;
+    let scale = s.screen_scale;
+
+    // Convert logical to physical coordinates
+    let px = (x as f32 * scale) as i32;
+    let py = (y as f32 * scale) as i32;
+    let psize = (size as f32 * scale) as i32;
+    let half = psize / 2;
+
+    let img_w = img.width() as i32;
+    let img_h = img.height() as i32;
+
+    // Calculate bounds (clamped to image)
+    let left = (px - half).max(0);
+    let top = (py - half).max(0);
+    let right = (px + half).min(img_w);
+    let bottom = (py + half).min(img_h);
+
+    let w = (right - left) as usize;
+    let h = (bottom - top) as usize;
+    if w == 0 || h == 0 {
+        return None;
+    }
+
+    // Extract pixels
+    let mut pixels = Vec::with_capacity(w * h * 4);
+    for row in top..bottom {
+        for col in left..right {
+            let p = img.get_pixel(col as u32, row as u32);
+            pixels.extend_from_slice(&p.0);
+        }
+    }
+
+    Some(pixels)
+}
+
 #[tauri::command]
 pub fn get_window_at_cursor() -> Option<Region> {
     #[cfg(target_os = "macos")]
@@ -214,25 +260,12 @@ pub fn capture_screen_now(app: AppHandle, state: tauri::State<SharedState>) -> b
         });
         println!("[capture_screen_now] 设置背景 {}ms", bg_start.elapsed().as_millis());
 
-        // Convert to RGBA and cache (for saving later)
+        // Convert to RGBA and cache (for magnifier and saving)
         let convert_start = std::time::Instant::now();
         if let Some(rgba) = native_screenshot::cgimage_to_rgba(&cg_image) {
-            // Update magnifier_snapshot so magnifier shows the frozen screen
-            use base64::{engine::general_purpose::STANDARD, Engine};
-            let rgb_data: Vec<u8> = rgba.pixels().flat_map(|p| [p[0], p[1], p[2]]).collect();
-            let mut jpeg_data = Vec::new();
-            let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg_data, 80);
-            if encoder.encode(&rgb_data, rgba.width(), rgba.height(), image::ExtendedColorType::Rgb8).is_ok() {
-                let base64_str = STANDARD.encode(&jpeg_data);
-                let data_url = format!("data:image/jpeg;base64,{}", base64_str);
-                let mut s = state.lock().unwrap();
-                s.cached_snapshot = Some(rgba);
-                s.magnifier_snapshot = Some(data_url);
-            } else {
-                let mut s = state.lock().unwrap();
-                s.cached_snapshot = Some(rgba);
-            }
-            println!("[capture_screen_now] 转换RGBA+编码 {}ms", convert_start.elapsed().as_millis());
+            let mut s = state.lock().unwrap();
+            s.cached_snapshot = Some(rgba);
+            println!("[capture_screen_now] RGBA缓存 {}ms", convert_start.elapsed().as_millis());
         }
 
         true
@@ -303,6 +336,12 @@ pub fn open_selector_internal(app: AppHandle) -> Result<(), String> {
     let pending_mode = s.pending_mode;
     drop(s);
 
+    // Clear old cached snapshot to prevent magnifier from using stale data
+    {
+        let mut s = state.lock().unwrap();
+        s.cached_snapshot = None;
+    }
+
     let should_hide = !has_frames
         && matches!(
             pending_mode,
@@ -337,52 +376,14 @@ pub fn open_selector_internal(app: AppHandle) -> Result<(), String> {
         let img = native_screenshot::capture_cgimage();
         println!("[DEBUG][open_selector_internal] 原生截屏 {}ms", start.elapsed().as_millis());
 
-        // Convert to base64 for magnifier in background thread (non-blocking)
+        // Cache RGBA for magnifier (no base64 encoding needed - use get_magnifier_pixels instead)
         if let Some(ref cg_img) = img {
             if let Some(rgba) = native_screenshot::cgimage_to_rgba(cg_img) {
-                let state_clone = app.state::<SharedState>().inner().clone();
-                let is_static = is_static_mode;
-
-                // For static mode, cache RGBA immediately (needed for cropping)
-                if is_static {
-                    let mut s = state_clone.lock().unwrap();
-                    s.cached_snapshot = Some(rgba.clone());
-                }
-
-                // Encode in background thread
-                std::thread::spawn(move || {
-                    let convert_start = std::time::Instant::now();
-                    use base64::{engine::general_purpose::STANDARD, Engine};
-
-                    // Convert RGBA to RGB for JPEG
-                    let rgb_data: Vec<u8> = rgba
-                        .pixels()
-                        .flat_map(|p| [p[0], p[1], p[2]])
-                        .collect();
-
-                    let mut jpeg_data = Vec::new();
-                    let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg_data, 80);
-                    if encoder
-                        .encode(&rgb_data, rgba.width(), rgba.height(), image::ExtendedColorType::Rgb8)
-                        .is_ok()
-                    {
-                        let base64_str = STANDARD.encode(&jpeg_data);
-                        let data_url = format!("data:image/jpeg;base64,{}", base64_str);
-
-                        let mut s = state_clone.lock().unwrap();
-                        s.magnifier_snapshot = Some(data_url);
-                        println!("[DEBUG][background] 放大镜截图转换 {}ms", convert_start.elapsed().as_millis());
-                    }
-                });
+                let state = app.state::<SharedState>();
+                let mut s = state.lock().unwrap();
+                s.cached_snapshot = Some(rgba);
+                println!("[DEBUG] RGBA缓存完成，放大镜就绪");
             }
-        }
-
-        // Clear old snapshots for non-static mode
-        if !is_static_mode {
-            let state = app.state::<SharedState>();
-            let mut s = state.lock().unwrap();
-            s.screen_snapshot = None;
-            s.cached_snapshot = None;
         }
 
         img

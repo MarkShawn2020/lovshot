@@ -160,6 +160,7 @@ pub fn run() {
             commands::get_pending_mode,
             commands::get_screen_snapshot,
             commands::get_magnifier_snapshot,
+            commands::get_magnifier_pixels,
             commands::clear_pending_mode,
             commands::capture_screen_now,
             commands::clear_screen_background,

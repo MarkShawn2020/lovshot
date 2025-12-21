@@ -1,16 +1,13 @@
-import { useRef, useEffect, useState, memo } from "react";
+import { useRef, useEffect, memo } from "react";
+import { invoke } from "@tauri-apps/api/core";
 
 interface MagnifierProps {
-  /** 全屏截图的 base64 data URL */
-  screenshot: string;
   /** 当前光标位置（逻辑像素） */
   cursorX: number;
   cursorY: number;
   /** 屏幕尺寸 */
   screenWidth: number;
   screenHeight: number;
-  /** 设备像素比 */
-  devicePixelRatio?: number;
   /** 是否正在拖拽选区 */
   isDragging?: boolean;
 }
@@ -18,124 +15,109 @@ interface MagnifierProps {
 // 放大镜配置
 const MAGNIFIER_SIZE = 120; // 放大镜显示尺寸
 const ZOOM_LEVEL = 8; // 放大倍率
-const SOURCE_SIZE = Math.floor(MAGNIFIER_SIZE / ZOOM_LEVEL); // 源区域尺寸 (15x15)
+const SOURCE_SIZE = Math.floor(MAGNIFIER_SIZE / ZOOM_LEVEL); // 源区域尺寸 (15x15 逻辑像素)
 const OFFSET = 20; // 光标偏移距离
 const INFO_HEIGHT = 30; // 信息栏高度
 
 /**
- * 放大镜组件 - 显示光标位置附近的像素放大效果
- * 用于精确选择截图区域的起点和终点
+ * 放大镜组件 - 直接从 Rust 获取小区域像素，无需传输整个屏幕
  */
 function MagnifierComponent({
-  screenshot,
   cursorX,
   cursorY,
   screenWidth,
   screenHeight,
-  devicePixelRatio = window.devicePixelRatio || 1,
   isDragging = false,
 }: MagnifierProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const imgRef = useRef<HTMLImageElement | null>(null);
-  const [imageLoaded, setImageLoaded] = useState(false);
+  const lastPosRef = useRef({ x: -1, y: -1 });
 
-  // 加载截图
-  useEffect(() => {
-    if (!screenshot) return;
-
-    const img = new Image();
-    img.onload = () => {
-      imgRef.current = img;
-      setImageLoaded(true);
-    };
-    img.src = screenshot;
-
-    return () => {
-      imgRef.current = null;
-      setImageLoaded(false);
-    };
-  }, [screenshot]);
-
-  // 绘制放大镜内容
+  // 获取并绘制像素
   useEffect(() => {
     const canvas = canvasRef.current;
-    const img = imgRef.current;
-    if (!canvas || !img || !imageLoaded) return;
+    if (!canvas) return;
 
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    // 清空画布
-    ctx.clearRect(0, 0, MAGNIFIER_SIZE, MAGNIFIER_SIZE);
+    // 节流：位置变化小于 1px 时跳过
+    const dx = Math.abs(cursorX - lastPosRef.current.x);
+    const dy = Math.abs(cursorY - lastPosRef.current.y);
+    if (dx < 1 && dy < 1) return;
+    lastPosRef.current = { x: cursorX, y: cursorY };
 
-    // 计算源图片中的采样区域（考虑设备像素比）
-    // 截图是物理像素尺寸，光标位置是逻辑像素
-    // SOURCE_SIZE 是逻辑像素数量，需要转换为物理像素
-    const physicalSourceSize = SOURCE_SIZE * devicePixelRatio;
-    const srcX = Math.floor(cursorX * devicePixelRatio - physicalSourceSize / 2);
-    const srcY = Math.floor(cursorY * devicePixelRatio - physicalSourceSize / 2);
+    // 请求小区域像素（SOURCE_SIZE 逻辑像素）
+    invoke<number[] | null>("get_magnifier_pixels", {
+      x: Math.round(cursorX),
+      y: Math.round(cursorY),
+      size: SOURCE_SIZE,
+    }).then((pixels) => {
+      if (!pixels || pixels.length === 0) return;
 
-    // 禁用图像平滑以获得像素化效果
-    ctx.imageSmoothingEnabled = false;
+      // 计算实际尺寸（像素数组是物理像素）
+      const dpr = window.devicePixelRatio || 1;
+      const physicalSize = Math.floor(SOURCE_SIZE * dpr);
+      const actualSize = Math.sqrt(pixels.length / 4);
 
-    // 从源图片采样并放大绘制
-    ctx.drawImage(
-      img,
-      srcX, srcY, physicalSourceSize, physicalSourceSize,  // 源区域（物理像素）
-      0, 0, MAGNIFIER_SIZE, MAGNIFIER_SIZE   // 目标区域
-    );
+      // 创建 ImageData
+      const imageData = new ImageData(
+        new Uint8ClampedArray(pixels),
+        actualSize,
+        actualSize
+      );
 
-    // 绘制中心十字准星
-    ctx.strokeStyle = "rgba(0, 0, 0, 0.8)";
-    ctx.lineWidth = 1;
-    const center = MAGNIFIER_SIZE / 2;
-    const crossSize = ZOOM_LEVEL; // 一个像素的大小
+      // 清空并绘制
+      ctx.clearRect(0, 0, MAGNIFIER_SIZE, MAGNIFIER_SIZE);
+      ctx.imageSmoothingEnabled = false;
 
-    // 垂直线
-    ctx.beginPath();
-    ctx.moveTo(center, center - crossSize * 2);
-    ctx.lineTo(center, center + crossSize * 2);
-    ctx.stroke();
+      // 先绘制到临时 canvas，再放大
+      const tempCanvas = document.createElement("canvas");
+      tempCanvas.width = actualSize;
+      tempCanvas.height = actualSize;
+      const tempCtx = tempCanvas.getContext("2d");
+      if (tempCtx) {
+        tempCtx.putImageData(imageData, 0, 0);
+        ctx.drawImage(tempCanvas, 0, 0, MAGNIFIER_SIZE, MAGNIFIER_SIZE);
+      }
 
-    // 水平线
-    ctx.beginPath();
-    ctx.moveTo(center - crossSize * 2, center);
-    ctx.lineTo(center + crossSize * 2, center);
-    ctx.stroke();
+      // 绘制中心十字准星
+      ctx.strokeStyle = "rgba(0, 0, 0, 0.8)";
+      ctx.lineWidth = 1;
+      const center = MAGNIFIER_SIZE / 2;
+      const crossSize = ZOOM_LEVEL;
 
-    // 中心像素高亮框
-    ctx.strokeStyle = "rgba(204, 120, 92, 0.9)"; // primary color
-    ctx.lineWidth = 2;
-    ctx.strokeRect(
-      center - crossSize / 2,
-      center - crossSize / 2,
-      crossSize,
-      crossSize
-    );
-  }, [cursorX, cursorY, devicePixelRatio, imageLoaded]);
+      ctx.beginPath();
+      ctx.moveTo(center, center - crossSize * 2);
+      ctx.lineTo(center, center + crossSize * 2);
+      ctx.stroke();
 
-  // 计算放大镜位置（默认左上角，空间不够时自适应）
+      ctx.beginPath();
+      ctx.moveTo(center - crossSize * 2, center);
+      ctx.lineTo(center + crossSize * 2, center);
+      ctx.stroke();
+
+      // 中心像素高亮框
+      ctx.strokeStyle = "rgba(204, 120, 92, 0.9)";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(
+        center - crossSize / 2,
+        center - crossSize / 2,
+        crossSize,
+        crossSize
+      );
+    });
+  }, [cursorX, cursorY]);
+
+  // 计算放大镜位置
   const totalHeight = MAGNIFIER_SIZE + INFO_HEIGHT;
-
-  // 默认：左上角（光标左上方）
   let magX = cursorX - OFFSET - MAGNIFIER_SIZE;
   let magY = cursorY - OFFSET - totalHeight;
 
-  // 如果左侧空间不够，改为右侧
-  if (magX < 8) {
-    magX = cursorX + OFFSET;
-  }
+  if (magX < 8) magX = cursorX + OFFSET;
+  if (magY < 8) magY = cursorY + OFFSET;
 
-  // 如果上方空间不够，改为下方
-  if (magY < 8) {
-    magY = cursorY + OFFSET;
-  }
-
-  // 最终边界检查
   magX = Math.min(magX, screenWidth - MAGNIFIER_SIZE - 8);
   magY = Math.min(magY, screenHeight - totalHeight - 8);
-
-  if (!screenshot || !imageLoaded) return null;
 
   return (
     <div

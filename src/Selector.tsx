@@ -41,7 +41,7 @@ export default function Selector() {
   const [originalWindowInfo, setOriginalWindowInfo] = useState<WindowInfo | null>(null);
   const [scrollCaptureEnabled, setScrollCaptureEnabled] = useState(false);
   const [screenSnapshot, setScreenSnapshot] = useState<string | null>(null);
-  const [magnifierScreenshot, setMagnifierScreenshot] = useState<string | null>(null);
+  const [magnifierReady, setMagnifierReady] = useState(false);
   const [captionEnabled, setCaptionEnabled] = useState(() => {
     return localStorage.getItem("captionEnabled") === "true";
   });
@@ -120,25 +120,23 @@ export default function Selector() {
     invoke<{ scroll_capture_enabled: boolean }>("get_shortcuts_config").then((cfg) => {
       setScrollCaptureEnabled(cfg.scroll_capture_enabled);
     });
-    // Poll for magnifier screenshot (encoding happens in background thread)
-    let retryCount = 0;
-    const maxRetries = 20; // 2 seconds max
-    const pollInterval = setInterval(() => {
-      invoke<string | null>("get_magnifier_snapshot").then((screenshot) => {
-        if (screenshot) {
-          console.log("[Selector] 获取放大镜截图");
-          setMagnifierScreenshot(screenshot);
-          clearInterval(pollInterval);
-        } else if (++retryCount >= maxRetries) {
-          console.warn("[Selector] 放大镜截图超时");
-          clearInterval(pollInterval);
+    // Check if magnifier is ready (cached_snapshot exists)
+    // Use a short poll since RGBA caching is very fast (~30ms)
+    let attempts = 0;
+    const checkReady = setInterval(() => {
+      invoke<number[] | null>("get_magnifier_pixels", { x: 0, y: 0, size: 1 }).then((pixels) => {
+        if (pixels) {
+          console.log("[Selector] 放大镜就绪");
+          setMagnifierReady(true);
+          clearInterval(checkReady);
+        } else if (++attempts > 20) {
+          console.warn("[Selector] 放大镜初始化超时");
+          clearInterval(checkReady);
         }
-      }).catch(() => {
-        clearInterval(pollInterval);
       });
-    }, 100);
+    }, 50);
 
-    return () => clearInterval(pollInterval);
+    return () => clearInterval(checkReady);
   }, []);
 
   // Track mouse position and detect window under cursor (throttled)
@@ -486,14 +484,10 @@ export default function Selector() {
       setMode("image");
     } else if (mode === "image") {
       // Dynamic -> Static: set window background directly (GPU accelerated)
+      // This also updates cached_snapshot, so magnifier will use the frozen screen
       const success = await invoke<boolean>("capture_screen_now");
       if (success) {
         setMode("staticimage");
-        // Refresh magnifier screenshot to show frozen screen
-        const snapshot = await invoke<string | null>("get_magnifier_snapshot");
-        if (snapshot) {
-          setMagnifierScreenshot(snapshot);
-        }
       }
     }
   }, [mode]);
@@ -614,9 +608,8 @@ export default function Selector() {
         </>
       )}
       {/* Magnifier - 在选区确认前显示 */}
-      {!showToolbar && !isEditing && mousePos && magnifierScreenshot && (
+      {!showToolbar && !isEditing && mousePos && magnifierReady && (
         <Magnifier
-          screenshot={magnifierScreenshot}
           cursorX={mousePos.x}
           cursorY={mousePos.y}
           screenWidth={window.innerWidth}

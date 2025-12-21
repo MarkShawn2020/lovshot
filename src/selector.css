@@ -456,7 +456,7 @@ kbd {
 
 .tool-dropdown {
   position: absolute;
-  bottom: calc(100% + 8px);
+  top: calc(100% + 8px);
   left: 50%;
   transform: translateX(-50%);
   background: var(--card);
@@ -466,22 +466,52 @@ kbd {
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
   z-index: 200;
   display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dropdown-styles {
+  display: flex;
   gap: 4px;
 }
 
+.dropdown-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 0 4px;
+}
+
+.dropdown-colors {
+  display: flex;
+  gap: 4px;
+  justify-content: center;
+  padding: 2px 4px;
+}
+
 .dropdown-item {
-  width: 32px;
-  height: 32px;
+  min-width: 48px;
+  padding: 8px 12px;
   border: none;
-  border-radius: 6px;
+  border-radius: 8px;
   cursor: pointer;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
+  gap: 4px;
   transition: all 0.15s;
   background: transparent;
   color: var(--muted-foreground);
+}
+
+.dropdown-item .dropdown-icon {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.dropdown-item span:last-child {
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .dropdown-item:hover {

@@ -737,16 +737,29 @@ export default function Selector() {
                 </button>
                 {isEditing && editor.activeTool === "rect" && (
                   <div className="tool-dropdown">
-                    {STYLE_OPTIONS.rect.map((opt) => (
-                      <button
-                        key={opt.value}
-                        className={`dropdown-item ${editor.activeStyles.rect === opt.value ? "active" : ""}`}
-                        onClick={() => editor.setRectStyle(opt.value as typeof editor.activeStyles.rect)}
-                      >
-                        <span className="dropdown-icon">{opt.icon}</span>
-                        <span>{opt.label}</span>
-                      </button>
-                    ))}
+                    <div className="dropdown-styles">
+                      {STYLE_OPTIONS.rect.map((opt) => (
+                        <button
+                          key={opt.value}
+                          className={`dropdown-item ${editor.activeStyles.rect === opt.value ? "active" : ""}`}
+                          onClick={() => editor.setRectStyle(opt.value as typeof editor.activeStyles.rect)}
+                        >
+                          <span className="dropdown-icon">{opt.icon}</span>
+                          <span>{opt.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                    <div className="dropdown-divider" />
+                    <div className="dropdown-colors">
+                      {ANNOTATION_COLORS.map((c) => (
+                        <button
+                          key={c.name}
+                          className={`color-dot ${editor.activeColor === c.value ? "active" : ""}`}
+                          style={{ backgroundColor: c.value }}
+                          onClick={() => editor.setActiveColor(c.value)}
+                        />
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
@@ -761,16 +774,18 @@ export default function Selector() {
                 </button>
                 {isEditing && editor.activeTool === "mosaic" && (
                   <div className="tool-dropdown">
-                    {STYLE_OPTIONS.mosaic.map((opt) => (
-                      <button
-                        key={opt.value}
-                        className={`dropdown-item ${editor.activeStyles.mosaic === opt.value ? "active" : ""}`}
-                        onClick={() => editor.setMosaicStyle(opt.value as typeof editor.activeStyles.mosaic)}
-                      >
-                        <span className="dropdown-icon">{opt.icon}</span>
-                        <span>{opt.label}</span>
-                      </button>
-                    ))}
+                    <div className="dropdown-styles">
+                      {STYLE_OPTIONS.mosaic.map((opt) => (
+                        <button
+                          key={opt.value}
+                          className={`dropdown-item ${editor.activeStyles.mosaic === opt.value ? "active" : ""}`}
+                          onClick={() => editor.setMosaicStyle(opt.value as typeof editor.activeStyles.mosaic)}
+                        >
+                          <span className="dropdown-icon">{opt.icon}</span>
+                          <span>{opt.label}</span>
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
@@ -785,52 +800,58 @@ export default function Selector() {
                 </button>
                 {isEditing && editor.activeTool === "arrow" && (
                   <div className="tool-dropdown">
-                    {STYLE_OPTIONS.arrow.map((opt) => (
-                      <button
-                        key={opt.value}
-                        className={`dropdown-item ${editor.activeStyles.arrow === opt.value ? "active" : ""}`}
-                        onClick={() => editor.setArrowStyle(opt.value as typeof editor.activeStyles.arrow)}
-                      >
-                        <span className="dropdown-icon">{opt.icon}</span>
-                        <span>{opt.label}</span>
-                      </button>
-                    ))}
+                    <div className="dropdown-styles">
+                      {STYLE_OPTIONS.arrow.map((opt) => (
+                        <button
+                          key={opt.value}
+                          className={`dropdown-item ${editor.activeStyles.arrow === opt.value ? "active" : ""}`}
+                          onClick={() => editor.setArrowStyle(opt.value as typeof editor.activeStyles.arrow)}
+                        >
+                          <span className="dropdown-icon">{opt.icon}</span>
+                          <span>{opt.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                    <div className="dropdown-divider" />
+                    <div className="dropdown-colors">
+                      {ANNOTATION_COLORS.map((c) => (
+                        <button
+                          key={c.name}
+                          className={`color-dot ${editor.activeColor === c.value ? "active" : ""}`}
+                          style={{ backgroundColor: c.value }}
+                          onClick={() => editor.setActiveColor(c.value)}
+                        />
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
 
-              <button
-                className={`toolbar-btn has-tooltip ${isEditing && editor.activeTool === "text" ? "active" : ""}`}
-                onClick={() => isEditing ? editor.setActiveTool("text") : enterEditMode("text")}
-                data-tooltip="文字 (5)"
-              >
-                T
-              </button>
+              <div className="toolbar-group">
+                <button
+                  className={`toolbar-btn has-tooltip ${isEditing && editor.activeTool === "text" ? "active" : ""}`}
+                  onClick={() => isEditing ? editor.setActiveTool("text") : enterEditMode("text")}
+                  data-tooltip="文字 (5)"
+                >
+                  T
+                </button>
+                {isEditing && editor.activeTool === "text" && (
+                  <div className="tool-dropdown">
+                    <div className="dropdown-colors">
+                      {ANNOTATION_COLORS.map((c) => (
+                        <button
+                          key={c.name}
+                          className={`color-dot ${editor.activeColor === c.value ? "active" : ""}`}
+                          style={{ backgroundColor: c.value }}
+                          onClick={() => editor.setActiveColor(c.value)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
-
-          {/* 颜色组 (only in editing mode) */}
-          {isEditing && (
-            <>
-              <div className="toolbar-divider" />
-              <div className="toolbar-section">
-                <span className="toolbar-section-title">颜色</span>
-                <div className="toolbar-section-content">
-                  <div className="color-picker">
-                    {ANNOTATION_COLORS.map((c) => (
-                      <button
-                        key={c.name}
-                        className={`color-dot ${editor.activeColor === c.value ? "active" : ""}`}
-                        style={{ backgroundColor: c.value }}
-                        onClick={() => editor.setActiveColor(c.value)}
-                        data-tooltip={c.name}
-                      />
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </>
-          )}
 
           {/* 历史组 (only in editing mode) */}
           {isEditing && (

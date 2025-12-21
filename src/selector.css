@@ -518,6 +518,48 @@ kbd {
   box-shadow: 0 0 0 2px var(--background);
 }
 
+/* Magnifier */
+.magnifier {
+  position: fixed;
+  z-index: 50;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.magnifier-canvas {
+  border-radius: 8px;
+  border: 2px solid var(--card);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  background: var(--card);
+  image-rendering: pixelated;
+}
+
+.magnifier-info {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--muted-foreground);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.magnifier-coords {
+  color: var(--foreground);
+}
+
+.magnifier-hint {
+  color: var(--primary);
+  font-weight: 500;
+}
+
 /* Annotation Canvas */
 .annotation-canvas {
   position: fixed;

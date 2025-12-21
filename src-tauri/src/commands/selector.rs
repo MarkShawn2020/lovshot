@@ -144,6 +144,11 @@ pub fn get_screen_snapshot(state: tauri::State<SharedState>) -> Option<String> {
 }
 
 #[tauri::command]
+pub fn get_magnifier_snapshot(state: tauri::State<SharedState>) -> Option<String> {
+    state.lock().unwrap().magnifier_snapshot.clone()
+}
+
+#[tauri::command]
 pub fn get_window_at_cursor() -> Option<Region> {
     #[cfg(target_os = "macos")]
     {
@@ -309,23 +314,69 @@ pub fn open_selector_internal(app: AppHandle) -> Result<(), String> {
     let height = screen.display_info.height;
     let scale = screen.display_info.scale_factor;
 
-    // For static screenshot mode, capture using native API (fast!)
+    // Capture screenshot for magnifier BEFORE opening window (prevents deadlock)
+    // Also capture for static mode background
     let is_static_mode = matches!(pending_mode, Some(CaptureMode::StaticImage));
 
     #[cfg(target_os = "macos")]
-    let cg_image = if is_static_mode {
+    let cg_image = {
         let start = std::time::Instant::now();
         let img = native_screenshot::capture_cgimage();
         println!("[DEBUG][open_selector_internal] 原生截屏 {}ms", start.elapsed().as_millis());
+
+        // Convert to base64 for magnifier in background thread (non-blocking)
+        if let Some(ref cg_img) = img {
+            if let Some(rgba) = native_screenshot::cgimage_to_rgba(cg_img) {
+                let state_clone = app.state::<SharedState>().inner().clone();
+                let is_static = is_static_mode;
+
+                // For static mode, cache RGBA immediately (needed for cropping)
+                if is_static {
+                    let mut s = state_clone.lock().unwrap();
+                    s.cached_snapshot = Some(rgba.clone());
+                }
+
+                // Encode in background thread
+                std::thread::spawn(move || {
+                    let convert_start = std::time::Instant::now();
+                    use base64::{engine::general_purpose::STANDARD, Engine};
+
+                    // Convert RGBA to RGB for JPEG
+                    let rgb_data: Vec<u8> = rgba
+                        .pixels()
+                        .flat_map(|p| [p[0], p[1], p[2]])
+                        .collect();
+
+                    let mut jpeg_data = Vec::new();
+                    let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg_data, 80);
+                    if encoder
+                        .encode(&rgb_data, rgba.width(), rgba.height(), image::ExtendedColorType::Rgb8)
+                        .is_ok()
+                    {
+                        let base64_str = STANDARD.encode(&jpeg_data);
+                        let data_url = format!("data:image/jpeg;base64,{}", base64_str);
+
+                        let mut s = state_clone.lock().unwrap();
+                        s.magnifier_snapshot = Some(data_url);
+                        println!("[DEBUG][background] 放大镜截图转换 {}ms", convert_start.elapsed().as_millis());
+                    }
+                });
+            }
+        }
+
+        // Clear old snapshots for non-static mode
+        if !is_static_mode {
+            let state = app.state::<SharedState>();
+            let mut s = state.lock().unwrap();
+            s.screen_snapshot = None;
+            s.cached_snapshot = None;
+        }
+
         img
-    } else {
-        // Clear cached snapshot for dynamic mode
-        let state = app.state::<SharedState>();
-        let mut s = state.lock().unwrap();
-        s.screen_snapshot = None;
-        s.cached_snapshot = None;
-        None
     };
+
+    #[cfg(not(target_os = "macos"))]
+    let cg_image: Option<()> = None;
 
     {
         let state = app.state::<SharedState>();
@@ -368,22 +419,15 @@ pub fn open_selector_internal(app: AppHandle) -> Result<(), String> {
         });
 
         // Set background image for static mode (hardware accelerated)
-        if let Some(ref cg_img) = cg_image {
-            let start = std::time::Instant::now();
-            let cg_ptr = cg_img.as_send_ptr(); // Extract Send-able pointer for 'static closure
-            let _ = win.with_webview(move |webview| unsafe {
-                let ns_window = webview.ns_window() as *mut objc::runtime::Object;
-                native_screenshot::set_window_background_cgimage_raw(ns_window, cg_ptr);
-            });
-            println!("[DEBUG][open_selector_internal] 设置背景 {}ms", start.elapsed().as_millis());
-
-            // Convert to RgbaImage for cropping (in background)
-            let convert_start = std::time::Instant::now();
-            if let Some(rgba) = native_screenshot::cgimage_to_rgba(cg_img) {
-                let state = app.state::<SharedState>();
-                let mut s = state.lock().unwrap();
-                s.cached_snapshot = Some(rgba);
-                println!("[DEBUG][open_selector_internal] 转换RGBA {}ms", convert_start.elapsed().as_millis());
+        if is_static_mode {
+            if let Some(ref cg_img) = cg_image {
+                let start = std::time::Instant::now();
+                let cg_ptr = cg_img.as_send_ptr();
+                let _ = win.with_webview(move |webview| unsafe {
+                    let ns_window = webview.ns_window() as *mut objc::runtime::Object;
+                    native_screenshot::set_window_background_cgimage_raw(ns_window, cg_ptr);
+                });
+                println!("[DEBUG][open_selector_internal] 设置背景 {}ms", start.elapsed().as_millis());
             }
         }
     }

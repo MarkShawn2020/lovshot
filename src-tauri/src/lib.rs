@@ -159,6 +159,7 @@ pub fn run() {
             commands::set_region,
             commands::get_pending_mode,
             commands::get_screen_snapshot,
+            commands::get_magnifier_snapshot,
             commands::clear_pending_mode,
             commands::capture_screen_now,
             commands::clear_screen_background,

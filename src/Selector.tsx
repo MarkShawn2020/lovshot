@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type Konva from "konva";
 import { AnnotationCanvas } from "./components/AnnotationCanvas";
+import { Magnifier } from "./components/Magnifier";
 import { useAnnotationEditor } from "./hooks/useAnnotationEditor";
 import type { AnnotationTool } from "./types/annotation";
 import { ANNOTATION_COLORS, STYLE_OPTIONS } from "./types/annotation";
@@ -39,6 +40,7 @@ export default function Selector() {
   const [originalWindowInfo, setOriginalWindowInfo] = useState<WindowInfo | null>(null);
   const [scrollCaptureEnabled, setScrollCaptureEnabled] = useState(false);
   const [screenSnapshot, setScreenSnapshot] = useState<string | null>(null);
+  const [magnifierScreenshot, setMagnifierScreenshot] = useState<string | null>(null);
   const [captionEnabled, setCaptionEnabled] = useState(() => {
     return localStorage.getItem("captionEnabled") === "true";
   });
@@ -117,6 +119,25 @@ export default function Selector() {
     invoke<{ scroll_capture_enabled: boolean }>("get_shortcuts_config").then((cfg) => {
       setScrollCaptureEnabled(cfg.scroll_capture_enabled);
     });
+    // Poll for magnifier screenshot (encoding happens in background thread)
+    let retryCount = 0;
+    const maxRetries = 20; // 2 seconds max
+    const pollInterval = setInterval(() => {
+      invoke<string | null>("get_magnifier_snapshot").then((screenshot) => {
+        if (screenshot) {
+          console.log("[Selector] 获取放大镜截图");
+          setMagnifierScreenshot(screenshot);
+          clearInterval(pollInterval);
+        } else if (++retryCount >= maxRetries) {
+          console.warn("[Selector] 放大镜截图超时");
+          clearInterval(pollInterval);
+        }
+      }).catch(() => {
+        clearInterval(pollInterval);
+      });
+    }, 100);
+
+    return () => clearInterval(pollInterval);
   }, []);
 
   // Track mouse position and detect window under cursor (throttled)
@@ -534,6 +555,17 @@ export default function Selector() {
           <div className="crosshair-h" style={{ top: mousePos!.y }} />
           <div className="crosshair-v" style={{ left: mousePos!.x }} />
         </>
+      )}
+      {/* Magnifier - 在选区确认前显示 */}
+      {!showToolbar && !isEditing && mousePos && magnifierScreenshot && (
+        <Magnifier
+          screenshot={magnifierScreenshot}
+          cursorX={mousePos.x}
+          cursorY={mousePos.y}
+          screenWidth={window.innerWidth}
+          screenHeight={window.innerHeight}
+          isDragging={isSelecting}
+        />
       )}
       <div ref={selectionRef} className="selection" />
       <div ref={sizeRef} className="size-label" />

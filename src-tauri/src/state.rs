@@ -13,6 +13,7 @@ pub struct AppState {
     pub pending_mode: Option<CaptureMode>,
     pub screen_snapshot: Option<String>,       // base64 for frontend display
     pub cached_snapshot: Option<RgbaImage>,    // raw image for cropping (static mode)
+    pub magnifier_snapshot: Option<String>,    // base64 screenshot for magnifier
     pub shortcuts_paused_for_editing: bool,
     pub shortcuts_paused_for_tray_menu: bool,
     // Scroll capture state
@@ -35,6 +36,7 @@ impl Default for AppState {
             pending_mode: None,
             screen_snapshot: None,
             cached_snapshot: None,
+            magnifier_snapshot: None,
             shortcuts_paused_for_editing: false,
             shortcuts_paused_for_tray_menu: false,
             scroll_capturing: false,

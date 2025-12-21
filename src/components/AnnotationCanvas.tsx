@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect, useCallback } from 'react';
-import { Stage, Layer, Image, Rect, Arrow, Text, Line, Transformer, Shape } from 'react-konva';
+import { Stage, Layer, Image, Rect, Arrow, Text, Line, Transformer, Shape, Group } from 'react-konva';
 import type Konva from 'konva';
 import type {
   Annotation,
@@ -26,6 +26,7 @@ interface Props {
   fontSize: number;
   onAddAnnotation: (annotation: Annotation) => void;
   onUpdateAnnotation: (id: string, updates: Partial<Annotation>) => void;
+  onDeleteAnnotation: (id: string) => void;
   onSelectAnnotation: (id: string | null) => void;
   stageRef: React.RefObject<Konva.Stage | null>;
 }
@@ -56,6 +57,7 @@ export function AnnotationCanvas({
   fontSize,
   onAddAnnotation,
   onUpdateAnnotation,
+  onDeleteAnnotation,
   onSelectAnnotation,
   stageRef,
 }: Props) {
@@ -67,9 +69,22 @@ export function AnnotationCanvas({
     currentAnnotation: null,
   });
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
+  const [hoveredTextId, setHoveredTextId] = useState<string | null>(null);
 
   const transformerRef = useRef<Konva.Transformer>(null);
   const textInputRef = useRef<HTMLTextAreaElement>(null);
+  const isComposingRef = useRef(false);
+  const isDraggingRef = useRef(false);
+
+  // Focus textarea when editing text
+  useEffect(() => {
+    if (editingTextId && textInputRef.current) {
+      // Use setTimeout to ensure textarea is rendered and ready
+      setTimeout(() => {
+        textInputRef.current?.focus();
+      }, 50);
+    }
+  }, [editingTextId]);
 
   // Load background image
   useEffect(() => {
@@ -97,12 +112,36 @@ export function AnnotationCanvas({
   }, [selectedId, activeTool, annotations, stageRef]);
 
   const handleMouseDown = useCallback((e: Konva.KonvaEventObject<MouseEvent>) => {
+    // Check if clicked on empty space (Stage background)
+    const clickedOnEmpty = e.target === e.target.getStage() || e.target.name() === 'background';
+
+    // If editing text, finish current edit first (always)
+    if (editingTextId) {
+      const currentText = textInputRef.current?.value || '';
+      if (currentText.trim()) {
+        onUpdateAnnotation(editingTextId, { text: currentText });
+      } else {
+        // Delete empty annotation
+        onDeleteAnnotation(editingTextId);
+      }
+      setEditingTextId(null);
+
+      // If not clicking on empty space or not using text tool, stop here
+      if (!clickedOnEmpty || activeTool !== 'text') {
+        return;
+      }
+      // Otherwise continue to create new text at clicked position
+    }
+
     if (activeTool === 'select') {
-      // Check if clicked on empty space
-      const clickedOnEmpty = e.target === e.target.getStage() || e.target.name() === 'background';
       if (clickedOnEmpty) {
         onSelectAnnotation(null);
       }
+      return;
+    }
+
+    // Only create new annotation when clicking on empty space
+    if (!clickedOnEmpty) {
       return;
     }
 
@@ -162,7 +201,7 @@ export function AnnotationCanvas({
       setEditingTextId(id);
       onSelectAnnotation(id);
     }
-  }, [activeTool, activeColor, activeStyles, strokeWidth, fontSize, onAddAnnotation, onSelectAnnotation]);
+  }, [activeTool, activeColor, activeStyles, strokeWidth, fontSize, onAddAnnotation, onSelectAnnotation, onUpdateAnnotation, onDeleteAnnotation, editingTextId]);
 
   const handleMouseMove = useCallback((e: Konva.KonvaEventObject<MouseEvent>) => {
     if (!drawing.isDrawing || !drawing.currentAnnotation) return;
@@ -243,14 +282,19 @@ export function AnnotationCanvas({
     }
   }, [annotations, onUpdateAnnotation]);
 
-  const handleTextEdit = useCallback((id: string, text: string) => {
-    onUpdateAnnotation(id, { text });
-    if (!text.trim()) {
-      // Remove empty text annotations on blur
-      // Note: caller should handle this via deleteAnnotation
+  // Handle text edit completion
+  // fromBlur: when true, don't delete empty annotations (let handleMouseDown/ESC do it)
+  const handleTextEdit = useCallback((id: string, text: string, fromBlur = false) => {
+    if (text.trim()) {
+      onUpdateAnnotation(id, { text });
+      setEditingTextId(null);
+    } else if (!fromBlur) {
+      // Only delete empty annotations when explicitly requested (Enter key)
+      onDeleteAnnotation(id);
+      setEditingTextId(null);
     }
-    setEditingTextId(null);
-  }, [onUpdateAnnotation]);
+    // If fromBlur and empty text: do nothing, keep textarea open
+  }, [onUpdateAnnotation, onDeleteAnnotation]);
 
   const renderAnnotation = (ann: Annotation) => {
     if (ann.type === 'rect') {
@@ -363,30 +407,72 @@ export function AnnotationCanvas({
 
     if (ann.type === 'text') {
       const isEditing = editingTextId === ann.id;
+      const hasText = !!ann.text;
+      const isHovered = hoveredTextId === ann.id;
+      const isDraggable = hasText && !isEditing;
+
+      // Calculate text dimensions for border
+      const padding = 4;
+      const textNode = stageRef.current?.findOne(`#${ann.id}`) as Konva.Text | undefined;
+      const textWidth = textNode?.width() || 100;
+      const textHeight = textNode?.height() || ann.fontSize;
+
       return (
-        <Text
+        <Group
           key={ann.id}
-          id={ann.id}
           x={ann.x}
           y={ann.y}
-          text={ann.text || (isEditing ? '' : '点击输入')}
-          fontSize={ann.fontSize}
-          fill={ann.color}
-          draggable={activeTool === 'select' && !isEditing}
-          onClick={() => {
-            handleShapeClick(ann.id);
-            if (activeTool === 'select') {
-              setEditingTextId(ann.id);
-            }
-          }}
-          onTap={() => handleShapeClick(ann.id)}
+          draggable={isDraggable}
+          onDragStart={() => { isDraggingRef.current = true; }}
           onDragEnd={(e) => {
             onUpdateAnnotation(ann.id, { x: e.target.x(), y: e.target.y() });
+            setTimeout(() => { isDraggingRef.current = false; }, 100);
           }}
-          onDblClick={() => setEditingTextId(ann.id)}
-          onDblTap={() => setEditingTextId(ann.id)}
-          opacity={ann.text ? 1 : 0.5}
-        />
+          onMouseEnter={(e) => {
+            if (isDraggable) {
+              setHoveredTextId(ann.id);
+              const container = e.target.getStage()?.container();
+              if (container) container.style.cursor = 'move';
+            }
+          }}
+          onMouseLeave={(e) => {
+            setHoveredTextId(null);
+            const container = e.target.getStage()?.container();
+            if (container) container.style.cursor = 'default';
+          }}
+        >
+          {/* Hover border */}
+          {isHovered && isDraggable && (
+            <Rect
+              x={-padding}
+              y={-padding}
+              width={textWidth + padding * 2}
+              height={textHeight + padding * 2}
+              stroke="#0066ff"
+              strokeWidth={1}
+              dash={[4, 4]}
+              fill="transparent"
+            />
+          )}
+          <Text
+            id={ann.id}
+            x={0}
+            y={0}
+            text={ann.text || (isEditing ? '' : '点击输入')}
+            fontSize={ann.fontSize}
+            fill={ann.color}
+            onClick={() => {
+              handleShapeClick(ann.id);
+              if (activeTool === 'select' && hasText) {
+                setEditingTextId(ann.id);
+              }
+            }}
+            onTap={() => handleShapeClick(ann.id)}
+            onDblClick={() => setEditingTextId(ann.id)}
+            onDblTap={() => setEditingTextId(ann.id)}
+            opacity={hasText ? 1 : 0.5}
+          />
+        </Group>
       );
     }
 
@@ -469,11 +555,28 @@ export function AnnotationCanvas({
           }}
           defaultValue={editingText.text}
           autoFocus
-          onBlur={(e) => handleTextEdit(editingText.id, e.target.value)}
+          onCompositionStart={() => { isComposingRef.current = true; }}
+          onCompositionEnd={() => { isComposingRef.current = false; }}
+          onBlur={(e) => handleTextEdit(editingText.id, e.target.value, true)}
           onKeyDown={(e) => {
+            // Ignore during IME composition (e.g., Chinese pinyin input)
+            // keyCode 229 = IME processing, isComposing = composition in progress
+            if (
+              e.nativeEvent.isComposing ||
+              e.keyCode === 229 ||
+              isComposingRef.current
+            ) {
+              return;
+            }
+
             if (e.key === 'Escape') {
+              // Cancel input, delete annotation
+              e.preventDefault();
+              e.stopPropagation();
+              onDeleteAnnotation(editingText.id);
               setEditingTextId(null);
             } else if (e.key === 'Enter' && !e.shiftKey) {
+              // Enter to confirm, Shift+Enter for newline
               e.preventDefault();
               handleTextEdit(editingText.id, e.currentTarget.value);
             }

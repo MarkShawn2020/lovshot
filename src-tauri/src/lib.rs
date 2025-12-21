@@ -209,6 +209,8 @@ pub fn run() {
             // Annotation commands
             commands::capture_region_preview,
             commands::save_annotated_screenshot,
+            // Debug commands
+            commands::open_devtools,
             show_main_window,
             quit_app,
         ])
@@ -257,6 +259,21 @@ pub fn run() {
                             let _ = win.show();
                             let _ = win.set_focus();
                             windows::set_activation_policy(0);
+                        }
+                    }
+                    "devtools" => {
+                        // Toggle devtools - prioritize selector, fallback to main (and show it)
+                        if let Some(win) = app.get_webview_window("selector") {
+                            println!("[devtools] Opening devtools for selector");
+                            win.open_devtools();
+                        } else if let Some(win) = app.get_webview_window("main") {
+                            println!("[devtools] Opening devtools for main (showing window first)");
+                            let _ = win.show();
+                            let _ = win.set_focus();
+                            windows::set_activation_policy(0);
+                            win.open_devtools();
+                        } else {
+                            println!("[devtools] No window found");
                         }
                     }
                     "screenshot" => {

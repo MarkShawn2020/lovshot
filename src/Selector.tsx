@@ -496,12 +496,28 @@ export default function Selector() {
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = async (e: KeyboardEvent) => {
+      // Check if user is typing in textarea (text annotation input)
+      const isTypingInTextarea = (e.target as HTMLElement).tagName === "TEXTAREA";
+
+      // F12 opens devtools (always available)
+      if (e.key === "F12") {
+        invoke("open_devtools");
+        return;
+      }
+
+      // If typing in textarea, let the textarea handle ESC/Enter
+      if (isTypingInTextarea) {
+        return;
+      }
+
+      // ESC closes window (when not typing)
+      if (e.key === "Escape") {
+        await closeWindow();
+        return;
+      }
+
       // Editing mode shortcuts
       if (isEditing) {
-        if (e.key === "Escape") {
-          exitEditMode();
-          return;
-        }
         if ((e.metaKey || e.ctrlKey) && e.key === "z") {
           e.preventDefault();
           if (e.shiftKey) {
@@ -512,7 +528,7 @@ export default function Selector() {
           return;
         }
         if (e.key === "Delete" || e.key === "Backspace") {
-          if (editor.selectedId && !(e.target as HTMLElement).closest("textarea")) {
+          if (editor.selectedId) {
             e.preventDefault();
             editor.deleteSelected();
           }
@@ -532,9 +548,7 @@ export default function Selector() {
       }
 
       // Normal mode shortcuts
-      if (e.key === "Escape") {
-        await closeWindow();
-      } else if (e.key === "Shift" && (mode === "image" || mode === "staticimage")) {
+      if (e.key === "Shift" && (mode === "image" || mode === "staticimage")) {
         // Shift toggles between static and dynamic screenshot
         await toggleStaticMode();
       } else if ((e.key === "s" || e.key === "S") && mode !== "staticimage") {
@@ -927,8 +941,8 @@ export default function Selector() {
               </button>
               <button
                 className="toolbar-btn has-tooltip"
-                onClick={isEditing ? exitEditMode : closeWindow}
-                data-tooltip={isEditing ? "取消编辑 (ESC)" : "取消 (ESC)"}
+                onClick={closeWindow}
+                data-tooltip="取消 (ESC)"
               >
                 X
               </button>
@@ -954,6 +968,7 @@ export default function Selector() {
           fontSize={editor.fontSize}
           onAddAnnotation={editor.addAnnotation}
           onUpdateAnnotation={editor.updateAnnotation}
+          onDeleteAnnotation={editor.deleteAnnotation}
           onSelectAnnotation={editor.setSelectedId}
           stageRef={stageRef}
         />

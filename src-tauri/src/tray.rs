@@ -42,6 +42,7 @@ pub fn build_tray_menu(app: &AppHandle) -> Result<Menu<tauri::Wry>, tauri::Error
         .unwrap_or_else(|| "Alt+O".to_string());
 
     let menu_show = MenuItem::with_id(app, "show", "Show Lovshot", true, Some(show_main_shortcut.as_str()))?;
+    let menu_devtools = MenuItem::with_id(app, "devtools", "Toggle DevTools", true, Some("Alt+Shift+I"))?;
     let menu_sep0 = PredefinedMenuItem::separator(app)?;
     let menu_screenshot = MenuItem::with_id(
         app,
@@ -78,6 +79,7 @@ pub fn build_tray_menu(app: &AppHandle) -> Result<Menu<tauri::Wry>, tauri::Error
         app,
         &[
             &menu_show,
+            &menu_devtools,
             &menu_sep0,
             &menu_screenshot,
             &menu_gif,

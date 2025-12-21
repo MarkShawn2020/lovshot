@@ -434,3 +434,10 @@ pub fn open_selector_internal(app: AppHandle) -> Result<(), String> {
 
     Ok(())
 }
+
+/// Open devtools for current window
+#[tauri::command]
+pub fn open_devtools(window: tauri::WebviewWindow) {
+    println!("[devtools] Opening devtools for window: {}", window.label());
+    window.open_devtools();
+}

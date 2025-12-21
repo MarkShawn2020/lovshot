@@ -24,50 +24,57 @@ export function useAnnotationEditor() {
   const historyRef = useRef<Annotation[][]>([[]]);
   const historyIndexRef = useRef(0);
 
-  const pushHistory = useCallback((newAnnotations: Annotation[]) => {
-    const history = historyRef.current;
-    const index = historyIndexRef.current;
+  // Use ref to track selectedId for stable callbacks
+  const selectedIdRef = useRef<string | null>(null);
+  selectedIdRef.current = selectedId;
 
-    // Truncate future history
-    const newHistory = history.slice(0, index + 1);
-    newHistory.push(newAnnotations);
+  // Stable pushHistory using functional update
+  const pushHistory = useCallback((updater: (prev: Annotation[]) => Annotation[]) => {
+    setAnnotations(prev => {
+      const newAnnotations = updater(prev);
 
-    // Limit history size
-    if (newHistory.length > MAX_HISTORY) {
-      newHistory.shift();
-    } else {
-      historyIndexRef.current = newHistory.length - 1;
-    }
+      const history = historyRef.current;
+      const index = historyIndexRef.current;
 
-    historyRef.current = newHistory;
-    setAnnotations(newAnnotations);
+      // Truncate future history
+      const newHistory = history.slice(0, index + 1);
+      newHistory.push(newAnnotations);
+
+      // Limit history size
+      if (newHistory.length > MAX_HISTORY) {
+        newHistory.shift();
+      } else {
+        historyIndexRef.current = newHistory.length - 1;
+      }
+
+      historyRef.current = newHistory;
+      return newAnnotations;
+    });
   }, []);
 
+  // Stable callbacks - no dependencies on annotations
   const addAnnotation = useCallback((annotation: Annotation) => {
-    const newAnnotations = [...annotations, annotation];
-    pushHistory(newAnnotations);
-  }, [annotations, pushHistory]);
+    pushHistory(prev => [...prev, annotation]);
+  }, [pushHistory]);
 
   const updateAnnotation = useCallback((id: string, updates: Partial<Annotation>) => {
-    const newAnnotations = annotations.map((ann) =>
+    pushHistory(prev => prev.map(ann =>
       ann.id === id ? { ...ann, ...updates } as Annotation : ann
-    );
-    pushHistory(newAnnotations);
-  }, [annotations, pushHistory]);
+    ));
+  }, [pushHistory]);
 
   const deleteAnnotation = useCallback((id: string) => {
-    const newAnnotations = annotations.filter((ann) => ann.id !== id);
-    pushHistory(newAnnotations);
-    if (selectedId === id) {
+    pushHistory(prev => prev.filter(ann => ann.id !== id));
+    if (selectedIdRef.current === id) {
       setSelectedId(null);
     }
-  }, [annotations, selectedId, pushHistory]);
+  }, [pushHistory]);
 
   const deleteSelected = useCallback(() => {
-    if (selectedId) {
-      deleteAnnotation(selectedId);
+    if (selectedIdRef.current) {
+      deleteAnnotation(selectedIdRef.current);
     }
-  }, [selectedId, deleteAnnotation]);
+  }, [deleteAnnotation]);
 
   const undo = useCallback(() => {
     const index = historyIndexRef.current;

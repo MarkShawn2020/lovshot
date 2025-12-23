@@ -244,18 +244,51 @@ export default function Preview() {
             </label>
             <div className="share-actions">
               <button
-                className="share-btn secondary"
-                onClick={() => invoke("copy_image_to_clipboard", { path })}
-                title="仅复制原图"
-              >
-                原图
-              </button>
-              <button
                 className="share-btn"
                 onClick={handleCopyComposed}
                 disabled={composing || !caption.trim() || !imageLoaded}
               >
                 {composing ? "生成中…" : "复制"}
+              </button>
+              <button
+                className="share-btn secondary"
+                onClick={async () => {
+                  if (composing || !renderRef.current || !caption.trim()) return;
+                  setComposing(true);
+                  try {
+                    const canvas = await html2canvas(renderRef.current, {
+                      backgroundColor: null,
+                      scale: 2,
+                      useCORS: true,
+                      logging: false,
+                    });
+                    const ctx = canvas.getContext("2d");
+                    if (!ctx) return;
+                    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                    const rgba = Array.from(imageData.data);
+                    // Generate new filename with timestamp
+                    const dir = path.substring(0, path.lastIndexOf("/"));
+                    const ext = path.substring(path.lastIndexOf("."));
+                    const baseName = path.substring(path.lastIndexOf("/") + 1, path.lastIndexOf("."));
+                    const newPath = `${dir}/${baseName}_${Date.now()}${ext}`;
+                    await invoke("save_rgba_to_file", {
+                      data: rgba,
+                      width: canvas.width,
+                      height: canvas.height,
+                      path: newPath,
+                    });
+                    await emit("image-saved", { path: newPath });
+                    console.log("[Preview] Image saved:", newPath);
+                  } catch (err) {
+                    console.error("[Preview] Save failed:", err);
+                  } finally {
+                    setComposing(false);
+                  }
+                }}
+                disabled={composing || !caption.trim() || !imageLoaded}
+                title="保存合成图为新文件"
+              >
+                保存
               </button>
             </div>
           </div>

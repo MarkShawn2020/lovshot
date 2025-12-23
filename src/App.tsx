@@ -299,11 +299,18 @@ function App() {
       );
     });
 
+    // 监听图片保存事件，刷新列表
+    const unlistenSaved = listen<{ path: string }>("image-saved", () => {
+      loadHistory(true);
+      loadStats();
+    });
+
     return () => {
       unlistenScreenshot.then((fn) => fn());
       unlistenGif.then((fn) => fn());
       unlistenTyping.then((fn) => fn());
       unlistenCaption.then((fn) => fn());
+      unlistenSaved.then((fn) => fn());
     };
   }, [loadStats]);
 

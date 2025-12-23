@@ -1333,6 +1333,16 @@ pub fn copy_rgba_to_clipboard(app: AppHandle, data: Vec<u8>, width: u32, height:
     Ok(())
 }
 
+#[tauri::command]
+pub fn save_rgba_to_file(data: Vec<u8>, width: u32, height: u32, path: String) -> Result<(), String> {
+    println!("[save_rgba_to_file] {}x{} -> {}", width, height, path);
+    let img = image::RgbaImage::from_raw(width, height, data)
+        .ok_or("Failed to create image from RGBA data")?;
+    img.save(&path).map_err(|e| format!("Failed to save image: {}", e))?;
+    println!("[save_rgba_to_file] Success");
+    Ok(())
+}
+
 /// Capture a region and return base64 PNG for annotation editing
 #[tauri::command(rename_all = "camelCase")]
 pub fn capture_region_preview(

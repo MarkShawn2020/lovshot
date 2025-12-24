@@ -1,10 +1,64 @@
+@import "tailwindcss";
+
+/* Warm Academic Design System - Tailwind v4 Theme */
+@theme {
+  /* 主背景：暖米色，非纯白 */
+  --color-background: #F9F9F7;
+  --color-foreground: #181818;
+
+  /* 主色：陶土色 */
+  --color-primary: #CC785C;
+  --color-primary-foreground: #FFFFFF;
+
+  /* 次要色 */
+  --color-secondary: #F0EEE6;
+  --color-secondary-foreground: #181818;
+
+  /* 静音色 */
+  --color-muted: #F0EEE6;
+  --color-muted-foreground: #87867F;
+
+  /* 边框和输入 */
+  --color-border: #E8E6DC;
+  --color-input: #E8E6DC;
+  --color-ring: #CC785C;
+
+  /* 卡片 */
+  --color-card: #FFFFFF;
+  --color-card-foreground: #181818;
+
+  /* 强调色：浅灰，用于 hover 等 */
+  --color-accent: #F0EEE6;
+  --color-accent-foreground: #181818;
+
+  /* 危险色 */
+  --color-destructive: #DC2626;
+  --color-destructive-foreground: #FFFFFF;
+
+  /* 圆角 */
+  --radius-lg: 8px;
+  --radius-md: 6px;
+  --radius-sm: 4px;
+}
+
 :root {
-  --background: #ffffff;
+  --background: #F9F9F7;
   --foreground: #181818;
-  --muted: #f0eee6;
-  --muted-foreground: #87867f;
-  --accent: #cc785c;
-  --warm-bg: #f9f9f7;
+  --primary: #CC785C;
+  --primary-foreground: #FFFFFF;
+  --secondary: #F0EEE6;
+  --secondary-foreground: #181818;
+  --muted: #F0EEE6;
+  --muted-foreground: #87867F;
+  --border: #E8E6DC;
+  --input: #E8E6DC;
+  --ring: #CC785C;
+  --card: #FFFFFF;
+  --card-foreground: #181818;
+  --accent: #F0EEE6;
+  --accent-foreground: #181818;
+  --warm-bg: #F9F9F7;
+  --radius: 8px;
 }
 
 * {
@@ -379,23 +433,6 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-}
-
-.watermark-toggle {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 12px;
-  color: var(--muted-foreground);
-  cursor: pointer;
-  user-select: none;
-}
-
-.watermark-toggle input {
-  width: 14px;
-  height: 14px;
-  accent-color: var(--accent);
-  cursor: pointer;
 }
 
 .share-hint {

@@ -455,3 +455,21 @@ pub fn open_devtools(window: tauri::WebviewWindow) {
     println!("[devtools] Opening devtools for window: {}", window.label());
     window.open_devtools();
 }
+
+/// Set mouse passthrough for selector window
+/// When enabled, mouse events pass through to underlying windows (for scroll capture)
+#[tauri::command]
+pub fn set_selector_mouse_passthrough(app: AppHandle, enabled: bool) -> Result<(), String> {
+    let win = app
+        .get_webview_window("selector")
+        .ok_or("Selector window not found")?;
+
+    win.set_ignore_cursor_events(enabled)
+        .map_err(|e| e.to_string())?;
+
+    println!(
+        "[set_selector_mouse_passthrough] passthrough={}",
+        enabled
+    );
+    Ok(())
+}

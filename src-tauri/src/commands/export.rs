@@ -3,15 +3,107 @@ use std::io::{BufReader, BufWriter};
 use std::path::PathBuf;
 use std::thread;
 
+use ab_glyph::{FontRef, PxScale};
 use crate::capture::Screen;
 use base64::{engine::general_purpose::STANDARD, Engine};
 use gif::{Encoder, Frame, Repeat};
-use image::RgbaImage;
+use image::{Rgba, RgbaImage};
+use imageproc::drawing::draw_text_mut;
 use tauri::{AppHandle, Emitter};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
+use crate::config::WatermarkPosition;
 use crate::state::SharedState;
 use crate::types::{ExportConfig, ExportProgress, GifLoopMode, SaveResult, SizeEstimate};
+
+// ============ Screenshot Watermark ============
+
+/// Load system font for watermark
+fn load_watermark_font() -> Option<FontRef<'static>> {
+    #[cfg(target_os = "macos")]
+    {
+        let font_paths = [
+            "/System/Library/Fonts/Menlo.ttc",
+            "/System/Library/Fonts/Monaco.ttf",
+            "/System/Library/Fonts/Helvetica.ttc",
+        ];
+        for path in font_paths {
+            if let Ok(data) = std::fs::read(path) {
+                let leaked: &'static [u8] = Box::leak(data.into_boxed_slice());
+                if let Ok(font) = FontRef::try_from_slice(leaked) {
+                    return Some(font);
+                }
+            }
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let font_paths = [
+            "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+            "C:\\Windows\\Fonts\\consola.ttf",
+        ];
+        for path in font_paths {
+            if let Ok(data) = std::fs::read(path) {
+                let leaked: &'static [u8] = Box::leak(data.into_boxed_slice());
+                if let Ok(font) = FontRef::try_from_slice(leaked) {
+                    return Some(font);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Add #{number} watermark based on config position
+fn add_screenshot_watermark(img: &mut RgbaImage, number: u64) {
+    let cfg = crate::config::load_config();
+    let position = cfg.watermark_position;
+
+    // Skip if position is None or Brand (Brand is handled in share_compose)
+    if matches!(position, WatermarkPosition::None | WatermarkPosition::Brand) {
+        println!("[watermark] Position {:?}, skipping corner watermark", position);
+        return;
+    }
+
+    let font = match load_watermark_font() {
+        Some(f) => f,
+        None => {
+            println!("[watermark] Font not found, skipping");
+            return;
+        }
+    };
+
+    let text = format!("#{}", number);
+    let (img_w, img_h) = img.dimensions();
+
+    // Scale font size based on image dimensions
+    let base_size = (img_w.min(img_h) as f32 * 0.04).clamp(14.0, 48.0);
+    let scale = PxScale::from(base_size);
+
+    // Estimate text dimensions
+    let char_width = base_size * 0.6;
+    let text_width = (text.len() as f32 * char_width) as u32;
+    let text_height = base_size as u32;
+    let padding = (base_size * 0.4) as u32;
+
+    // Calculate position based on config
+    let (x, y) = match position {
+        WatermarkPosition::TopLeft => (padding as i32, padding as i32),
+        WatermarkPosition::TopRight => ((img_w.saturating_sub(text_width + padding)) as i32, padding as i32),
+        WatermarkPosition::BottomLeft => (padding as i32, (img_h.saturating_sub(text_height + padding)) as i32),
+        WatermarkPosition::BottomRight => (
+            (img_w.saturating_sub(text_width + padding)) as i32,
+            (img_h.saturating_sub(text_height + padding)) as i32,
+        ),
+        _ => return,
+    };
+
+    // Draw with semi-transparent dark color
+    let color = Rgba([40, 40, 40, 180]);
+    draw_text_mut(img, color, x, y, scale, &font, &text);
+
+    println!("[watermark] Added #{} at ({}, {}) position {:?}", number, x, y, position);
+}
 
 #[tauri::command]
 pub fn estimate_export_size(
@@ -267,7 +359,7 @@ pub fn save_screenshot(
             .ok_or("Failed to convert image")?
     };
 
-    let img = if (output_scale - 1.0).abs() > 0.01 {
+    let mut img = if (output_scale - 1.0).abs() > 0.01 {
         let new_w = (captured_rgba.width() as f32 * output_scale) as u32;
         let new_h = (captured_rgba.height() as f32 * output_scale) as u32;
         println!("[DEBUG][save_screenshot] 缩放到: {}x{}", new_w, new_h);
@@ -280,6 +372,10 @@ pub fn save_screenshot(
     } else {
         captured_rgba
     };
+
+    // Add watermark with screenshot number
+    let screenshot_number = crate::config::count_screenshots();
+    add_screenshot_watermark(&mut img, screenshot_number);
 
     let tauri_image =
         tauri::image::Image::new_owned(img.as_raw().to_vec(), img.width(), img.height());
@@ -991,6 +1087,11 @@ fn read_finder_comment(_path: &str) -> Option<String> {
 }
 
 #[tauri::command]
+pub fn get_image_description(path: String) -> Option<String> {
+    read_finder_comment(&path)
+}
+
+#[tauri::command]
 pub fn delete_file(path: String) -> Result<(), String> {
     // Move to trash instead of permanent delete
     trash::delete(&path).map_err(|e| format!("Failed to delete file: {}", e))?;
@@ -1426,11 +1527,15 @@ pub fn save_annotated_screenshot(
         .map_err(|e| format!("Base64 decode error: {}", e))?;
 
     // Load as image
-    let img = image::load_from_memory(&decoded)
+    let mut img = image::load_from_memory(&decoded)
         .map_err(|e| format!("Image load error: {}", e))?
         .to_rgba8();
 
     println!("[save_annotated_screenshot] Image size: {}x{}", img.width(), img.height());
+
+    // Add watermark with screenshot number
+    let screenshot_number = crate::config::count_screenshots();
+    add_screenshot_watermark(&mut img, screenshot_number);
 
     // Copy to clipboard
     let tauri_image = tauri::image::Image::new_owned(

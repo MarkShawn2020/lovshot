@@ -927,6 +927,9 @@ function App() {
                   <button className="btn-action btn-secondary" onClick={handleRevealInFinder}>
                     显示
                   </button>
+                  <button className="btn-action btn-secondary" onClick={() => invoke("open_caption_editor", { path: selected.path })}>
+                    编辑备注
+                  </button>
                 </div>
               </div>
             </>

@@ -41,6 +41,28 @@ impl ShortcutConfig {
     }
 }
 
+/// Watermark position options
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum WatermarkPosition {
+    None,           // No watermark
+    Brand,          // Next to "via lovshot"
+    TopLeft,
+    TopRight,
+    BottomLeft,
+    BottomRight,
+}
+
+impl Default for WatermarkPosition {
+    fn default() -> Self {
+        WatermarkPosition::BottomRight
+    }
+}
+
+fn default_watermark_position() -> WatermarkPosition {
+    WatermarkPosition::BottomRight
+}
+
 /// Application configuration (v2 - supports multiple shortcuts per action)
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -56,6 +78,8 @@ pub struct AppConfig {
     pub screenshot_preview_enabled: bool,
     #[serde(default = "default_image_export_format")]
     pub image_export_format: String, // "markdown", "html", "url_only"
+    #[serde(default = "default_watermark_position")]
+    pub watermark_position: WatermarkPosition,
 }
 
 fn default_image_export_format() -> String {
@@ -96,6 +120,7 @@ impl From<OldAppConfig> for AppConfig {
             scroll_capture_enabled: old.scroll_capture_enabled,
             screenshot_preview_enabled: old.screenshot_preview_enabled,
             image_export_format: default_image_export_format(),
+            watermark_position: default_watermark_position(),
         }
     }
 }
@@ -192,6 +217,7 @@ impl Default for AppConfig {
             scroll_capture_enabled: false,
             screenshot_preview_enabled: true,
             image_export_format: default_image_export_format(),
+            watermark_position: default_watermark_position(),
         }
     }
 }
@@ -363,4 +389,39 @@ pub fn remove_shortcut(action: &str, index: usize) -> Result<AppConfig, String> 
     }
     save_config(&config)?;
     Ok(config)
+}
+
+// ============ Screenshot Counter ============
+
+/// Count all image files in lovshot folder (including subfolders)
+pub fn count_screenshots() -> u64 {
+    let output_dir = dirs::picture_dir()
+        .or_else(dirs::home_dir)
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("lovshot");
+
+    if !output_dir.exists() {
+        return 1; // First screenshot
+    }
+
+    fn count_images_recursive(dir: &std::path::Path) -> u64 {
+        let mut count = 0u64;
+        if let Ok(entries) = fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    count += count_images_recursive(&path);
+                } else if path.is_file() {
+                    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+                    if matches!(ext.to_lowercase().as_str(), "png" | "jpg" | "jpeg" | "gif") {
+                        count += 1;
+                    }
+                }
+            }
+        }
+        count
+    }
+
+    // Return current count + 1 (for the new screenshot being saved)
+    count_images_recursive(&output_dir) + 1
 }

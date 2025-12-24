@@ -4,6 +4,14 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { emit } from "@tauri-apps/api/event";
 import { LogicalSize } from "@tauri-apps/api/dpi";
 import html2canvas from "html2canvas";
+import { Checkbox } from "./components/ui/checkbox";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "./components/ui/select";
 
 const SHARE_TEMPLATES = [
   { id: "clean", label: "简约" },
@@ -24,7 +32,23 @@ export default function Preview() {
   const [template, setTemplate] = useState<TemplateId>("clean");
   const [composing, setComposing] = useState(false);
   const [imageLoaded, setImageLoaded] = useState(false);
-  const [showWatermark, setShowWatermark] = useState(true); // TODO: VIP users can disable
+  const [showWatermark, setShowWatermark] = useState(true);
+  const [watermarkPosition, setWatermarkPosition] = useState("bottom_right");
+  const [screenshotCount, setScreenshotCount] = useState(0);
+
+  // Load watermark settings from config
+  useEffect(() => {
+    console.log('[DEBUG][Preview] Loading watermark settings...');
+    invoke<string>("get_watermark_position").then((pos) => {
+      console.log('[DEBUG][Preview] Loaded watermark position:', pos);
+      setWatermarkPosition(pos);
+      setShowWatermark(pos !== "none");
+    }).catch(console.error);
+    invoke<number>("get_screenshot_count").then((count) => {
+      console.log('[DEBUG][Preview] Screenshot count:', count);
+      setScreenshotCount(count);
+    }).catch(console.error);
+  }, []);
   const captionRef = useRef(caption);
   const renderRef = useRef<HTMLDivElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
@@ -65,12 +89,41 @@ export default function Preview() {
     }
   };
 
+  // Load existing description when opening caption editor
+  useEffect(() => {
+    if (!isCaptionMode || !path) return;
+    invoke<string | null>("get_image_description", { path }).then((desc) => {
+      if (desc) setCaption(desc);
+    }).catch(console.error);
+  }, [isCaptionMode, path]);
+
+  // Auto-save and close on window blur
+  useEffect(() => {
+    if (!isCaptionMode) return;
+
+    const win = getCurrentWindow();
+    const unlisten = win.onFocusChanged(async ({ payload: focused }) => {
+      if (!focused) {
+        if (captionRef.current.trim()) {
+          await invoke("save_caption", { path, caption: captionRef.current.trim() });
+        }
+        await win.close();
+      }
+    });
+
+    return () => { unlisten.then((f) => f()); };
+  }, [isCaptionMode, path]);
+
   useEffect(() => {
     if (!isCaptionMode) return;
 
     const onKeyDown = async (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
+        // Save caption before closing if modified
+        if (captionRef.current.trim()) {
+          await invoke("save_caption", { path, caption: captionRef.current.trim() });
+        }
         await getCurrentWindow().close();
       } else if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
@@ -115,6 +168,10 @@ export default function Preview() {
         width: canvas.width,
         height: canvas.height,
       });
+      // Save caption to original image's Finder comment
+      if (captionRef.current.trim()) {
+        await invoke("save_caption", { path, caption: captionRef.current.trim() });
+      }
       console.log("[Preview] Image copied to clipboard via Tauri");
     } catch (err) {
       console.error("[Preview] Copy failed:", err);
@@ -134,7 +191,11 @@ export default function Preview() {
       resizeWindowToFit(img.naturalWidth, img.naturalHeight);
     };
 
-    const watermark = showWatermark && <span className="tpl-watermark">lovshot</span>;
+    // Watermark with optional numbering based on position
+    const watermarkText = watermarkPosition === "brand" && screenshotCount > 0
+      ? `#${screenshotCount} via lovshot`
+      : "via lovshot";
+    const watermark = showWatermark && <span className="tpl-watermark">{watermarkText}</span>;
 
     switch (template) {
       case "clean":
@@ -234,14 +295,38 @@ export default function Preview() {
             autoFocus
           />
           <div className="share-footer">
-            <label className="watermark-toggle">
-              <input
-                type="checkbox"
-                checked={showWatermark}
-                onChange={(e) => setShowWatermark(e.target.checked)}
-              />
-              <span>水印</span>
-            </label>
+            <div className="flex items-center gap-4">
+              <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none">
+                <Checkbox
+                  checked={showWatermark}
+                  onCheckedChange={(checked) => setShowWatermark(checked === true)}
+                />
+                <span>水印</span>
+              </label>
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <span>编号</span>
+                <Select
+                  value={watermarkPosition}
+                  onValueChange={async (pos) => {
+                    setWatermarkPosition(pos);
+                    if (pos === "none") setShowWatermark(false);
+                    await invoke("set_watermark_position", { position: pos });
+                  }}
+                >
+                  <SelectTrigger className="h-7 w-24 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">关闭</SelectItem>
+                    <SelectItem value="brand">品牌名旁</SelectItem>
+                    <SelectItem value="top_left">左上角</SelectItem>
+                    <SelectItem value="top_right">右上角</SelectItem>
+                    <SelectItem value="bottom_left">左下角</SelectItem>
+                    <SelectItem value="bottom_right">右下角</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
             <div className="share-actions">
               <button
                 className="share-btn"
@@ -277,6 +362,10 @@ export default function Preview() {
                       height: canvas.height,
                       path: newPath,
                     });
+                    // Save caption to original image's Finder comment
+                    if (caption.trim()) {
+                      await invoke("save_caption", { path, caption: caption.trim() });
+                    }
                     await emit("image-saved", { path: newPath });
                     console.log("[Preview] Image saved:", newPath);
                   } catch (err) {

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { save } from "@tauri-apps/plugin-dialog";
 import type Konva from "konva";
 import { AnnotationCanvas } from "./components/AnnotationCanvas";
 import { Magnifier } from "./components/Magnifier";
@@ -129,17 +130,30 @@ export default function Selector() {
     };
   }, [scrollCaptureActive]);
 
-  // 滚动截图：完成并保存（自动保存到 ~/Pictures/lovshot/ 并显示在 Dashboard）
+  // 滚动截图：完成并保存
   const finishScrollCapture = useCallback(async () => {
     if (!scrollCaptureActive) return;
 
-    // Stop polling FIRST to prevent new FFT matching requests
-    setScrollCaptureActive(false);
-
     try {
+      // 先禁用穿透，让保存对话框可以正常交互
       await invoke("set_selector_mouse_passthrough", { enabled: false });
-      // 保存、复制到剪贴板、发送事件（后端处理）
-      await invoke("finish_scroll_capture", { crop: null });
+
+      // 弹出保存对话框
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+      const filePath = await save({
+        defaultPath: `scroll_${timestamp}.png`,
+        filters: [{ name: "PNG Image", extensions: ["png"] }],
+      });
+
+      if (!filePath) {
+        // 用户取消了保存，重新启用穿透
+        await invoke("set_selector_mouse_passthrough", { enabled: true });
+        return;
+      }
+
+      // 保存并关闭
+      setScrollCaptureActive(false);
+      await invoke("finish_scroll_capture", { path: filePath, crop: null });
       await closeWindow();
     } catch (e) {
       console.error("[Selector] Failed to finish scroll capture:", e);
@@ -294,14 +308,24 @@ export default function Selector() {
       await invoke("start_recording");
       await closeWindow();
     } else if (mode === "scroll") {
-      // Scroll mode: 进入本地滚动捕获模式（类似静态截图）
-      console.log("[Selector] 进入 scroll 模式");
+      // Scroll mode: 内联滚动捕获（统一窗口方案）
+      console.log("[Selector] 进入 scroll 模式（内联）");
 
       try {
-        await invoke("open_scroll_overlay", { region });
-        await closeWindow();
+        // 启用鼠标穿透，让滚动事件传递到下层窗口
+        await invoke("set_selector_mouse_passthrough", { enabled: true });
+        // 启动滚动捕获
+        const progress = await invoke<{ frame_count: number; total_height: number; preview_base64: string }>(
+          "start_scroll_capture_inline",
+          { region }
+        );
+        setScrollPreview(progress.preview_base64);
+        setScrollFrameCount(progress.frame_count);
+        setScrollTotalHeight(progress.total_height);
+        setScrollCaptureActive(true);
       } catch (e) {
-        console.error("[Selector] Failed to open scroll overlay:", e);
+        console.error("[Selector] Failed to start scroll capture:", e);
+        await invoke("set_selector_mouse_passthrough", { enabled: false });
       }
     }
   }, [selectionRect, mode, closeWindow, isEditing, editor.annotations.length, captionEnabled]);
@@ -471,7 +495,7 @@ export default function Selector() {
         setOriginalWindowInfo(null);
         if (sizeRef.current) sizeRef.current.style.display = "none";
 
-        // scroll 模式：选区确认后直接进入滚动捕获
+        // scroll 模式：选区确认后直接进入滚动捕获（内联）
         if (mode === "scroll") {
           const region = {
             x: Math.round(x),
@@ -481,10 +505,18 @@ export default function Selector() {
           };
           try {
             await invoke("set_region", { region });
-            await invoke("open_scroll_overlay", { region });
-            await closeWindow();
+            await invoke("set_selector_mouse_passthrough", { enabled: true });
+            const progress = await invoke<{ frame_count: number; total_height: number; preview_base64: string }>(
+              "start_scroll_capture_inline",
+              { region }
+            );
+            setScrollPreview(progress.preview_base64);
+            setScrollFrameCount(progress.frame_count);
+            setScrollTotalHeight(progress.total_height);
+            setScrollCaptureActive(true);
           } catch (e) {
-            console.error("[Selector] Failed to open scroll overlay:", e);
+            console.error("[Selector] Failed to start scroll capture:", e);
+            await invoke("set_selector_mouse_passthrough", { enabled: false });
           }
         } else {
           setShowToolbar(true);
@@ -521,7 +553,7 @@ export default function Selector() {
             selectionRef.current.style.display = "block";
           }
 
-          // scroll 模式：选区确认后直接进入滚动捕获
+          // scroll 模式：选区确认后直接进入滚动捕获（内联）
           if (mode === "scroll") {
             const region = {
               x: Math.round(windowInfo.x),
@@ -531,10 +563,18 @@ export default function Selector() {
             };
             try {
               await invoke("set_region", { region });
-              await invoke("open_scroll_overlay", { region });
-              await closeWindow();
+              await invoke("set_selector_mouse_passthrough", { enabled: true });
+              const progress = await invoke<{ frame_count: number; total_height: number; preview_base64: string }>(
+                "start_scroll_capture_inline",
+                { region }
+              );
+              setScrollPreview(progress.preview_base64);
+              setScrollFrameCount(progress.frame_count);
+              setScrollTotalHeight(progress.total_height);
+              setScrollCaptureActive(true);
             } catch (e) {
-              console.error("[Selector] Failed to open scroll overlay:", e);
+              console.error("[Selector] Failed to start scroll capture:", e);
+              await invoke("set_selector_mouse_passthrough", { enabled: false });
             }
           } else {
             setShowToolbar(true);
@@ -1104,7 +1144,7 @@ export default function Selector() {
               top: selectionRect.y - 2,
               width: selectionRect.w + 4,
               height: selectionRect.h + 4,
-              border: "2px solid #CC785C",
+              border: "2px dashed #CC785C",
               borderRadius: 4,
               pointerEvents: "none",
               zIndex: 100,
@@ -1117,9 +1157,15 @@ export default function Selector() {
             <div className="corner-mark corner-br" />
           </div>
 
-          {/* 底部预览条 */}
+          {/* 底部预览条 - 鼠标进入时禁用穿透，离开时启用穿透 */}
           <div
             className="scroll-capture-bar"
+            onMouseEnter={async () => {
+              await invoke("set_selector_mouse_passthrough", { enabled: false });
+            }}
+            onMouseLeave={async () => {
+              await invoke("set_selector_mouse_passthrough", { enabled: true });
+            }}
             style={{
               position: "fixed",
               left: 0,
@@ -1150,6 +1196,7 @@ export default function Selector() {
                   src={scrollPreview}
                   alt=""
                   style={{ height: "100%", width: "auto", objectFit: "contain" }}
+                  draggable={false}
                 />
               </div>
             )}
@@ -1161,13 +1208,45 @@ export default function Selector() {
               <span style={{ color: "#CC785C", fontWeight: 600 }}>{scrollTotalHeight}</span> px
             </div>
 
-            {/* 操作提示 */}
-            <div style={{ color: "rgba(255,255,255,0.6)", fontSize: 12 }}>
-              滚动页面，自动拼接
-              <span style={{ margin: "0 12px", opacity: 0.3 }}>|</span>
-              <kbd style={{ background: "rgba(255,255,255,0.1)", padding: "2px 6px", borderRadius: 3, margin: "0 4px" }}>Enter</kbd> 完成
-              <span style={{ margin: "0 8px", opacity: 0.3 }}>|</span>
-              <kbd style={{ background: "rgba(255,255,255,0.1)", padding: "2px 6px", borderRadius: 3, margin: "0 4px" }}>ESC</kbd> 取消
+            {/* 操作按钮 */}
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                onMouseDown={finishScrollCapture}
+                style={{
+                  padding: "8px 16px",
+                  background: "#CC785C",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: 6,
+                  fontSize: 13,
+                  fontWeight: 500,
+                  cursor: "pointer",
+                }}
+              >
+                完成
+              </button>
+              <button
+                onMouseDown={cancelScrollCapture}
+                style={{
+                  padding: "8px 16px",
+                  background: "rgba(255,255,255,0.1)",
+                  color: "#fff",
+                  border: "1px solid rgba(255,255,255,0.2)",
+                  borderRadius: 6,
+                  fontSize: 13,
+                  fontWeight: 500,
+                  cursor: "pointer",
+                }}
+              >
+                取消
+              </button>
+            </div>
+
+            {/* 快捷键提示 */}
+            <div style={{ color: "rgba(255,255,255,0.5)", fontSize: 11 }}>
+              <kbd style={{ background: "rgba(255,255,255,0.1)", padding: "2px 6px", borderRadius: 3, marginRight: 4 }}>Enter</kbd>
+              /
+              <kbd style={{ background: "rgba(255,255,255,0.1)", padding: "2px 6px", borderRadius: 3, margin: "0 4px" }}>ESC</kbd>
             </div>
           </div>
         </>

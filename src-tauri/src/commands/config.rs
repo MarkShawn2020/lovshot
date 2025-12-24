@@ -2,7 +2,7 @@ use tauri::AppHandle;
 use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
-use crate::config::{self, AppConfig, ShortcutConfig};
+use crate::config::{self, AppConfig, ShortcutConfig, WatermarkPosition};
 use crate::shortcuts::register_shortcuts_from_config;
 use crate::state::SharedState;
 use crate::tray::update_tray_menu;
@@ -158,6 +158,41 @@ pub fn set_image_export_format(format: String) -> Result<AppConfig, String> {
     }
     let mut cfg = config::load_config();
     cfg.image_export_format = format;
+    config::save_config(&cfg)?;
+    Ok(cfg)
+}
+
+#[tauri::command]
+pub fn get_screenshot_count() -> u64 {
+    config::count_screenshots()
+}
+
+#[tauri::command]
+pub fn get_watermark_position() -> String {
+    let pos = config::load_config().watermark_position;
+    match pos {
+        WatermarkPosition::None => "none",
+        WatermarkPosition::Brand => "brand",
+        WatermarkPosition::TopLeft => "top_left",
+        WatermarkPosition::TopRight => "top_right",
+        WatermarkPosition::BottomLeft => "bottom_left",
+        WatermarkPosition::BottomRight => "bottom_right",
+    }.to_string()
+}
+
+#[tauri::command]
+pub fn set_watermark_position(position: String) -> Result<AppConfig, String> {
+    let pos = match position.as_str() {
+        "none" => WatermarkPosition::None,
+        "brand" => WatermarkPosition::Brand,
+        "top_left" => WatermarkPosition::TopLeft,
+        "top_right" => WatermarkPosition::TopRight,
+        "bottom_left" => WatermarkPosition::BottomLeft,
+        "bottom_right" => WatermarkPosition::BottomRight,
+        _ => return Err("Invalid position".to_string()),
+    };
+    let mut cfg = config::load_config();
+    cfg.watermark_position = pos;
     config::save_config(&cfg)?;
     Ok(cfg)
 }

@@ -122,85 +122,18 @@ html, body, #root {
   color: var(--primary-foreground, #fff);
 }
 
-/* Crop wrapper */
-.crop-wrapper {
-  position: relative;
+/* Preview wrapper */
+.preview-wrapper {
   display: inline-block;
 }
 
-.crop-wrapper img {
+.preview-wrapper img {
   display: block;
   user-select: none;
   max-width: 100cqw;
   max-height: 100cqh;
   width: auto;
   height: auto;
-}
-
-/* Crop overlay (darkened areas) */
-.crop-overlay {
-  position: absolute;
-  background: rgba(0, 0, 0, 0.5);
-  pointer-events: none;
-}
-
-.crop-top {
-  top: 0;
-  left: 0;
-  right: 0;
-}
-
-.crop-bottom {
-  bottom: 0;
-  left: 0;
-  right: 0;
-}
-
-.crop-left {
-  left: 0;
-}
-
-.crop-right {
-  right: 0;
-}
-
-/* Drag handles */
-.crop-handle {
-  position: absolute;
-  background: var(--primary, #CC785C);
-  z-index: 10;
-}
-
-.crop-handle-top,
-.crop-handle-bottom {
-  left: 0;
-  right: 0;
-  height: 4px;
-  cursor: ns-resize;
-}
-
-.crop-handle-top {
-  transform: translateY(-50%);
-}
-
-.crop-handle-bottom {
-  transform: translateY(50%);
-}
-
-.crop-handle-left,
-.crop-handle-right {
-  top: 0;
-  bottom: 0;
-  width: 4px;
-  cursor: ew-resize;
-}
-
-.crop-handle-left {
-  transform: translateX(-50%);
-}
-
-.crop-handle-right {
-  transform: translateX(50%);
 }
 
 /* Window resize handles */

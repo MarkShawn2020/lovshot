@@ -18,6 +18,7 @@ mod capture;
 mod commands;
 mod config;
 mod fft_match;
+mod row_hash;
 mod permission;
 mod share_compose;
 mod shortcuts;
@@ -183,6 +184,9 @@ pub fn run() {
             commands::set_screenshot_preview_enabled,
             commands::get_image_export_format,
             commands::set_image_export_format,
+            commands::get_screenshot_count,
+            commands::get_watermark_position,
+            commands::set_watermark_position,
             commands::start_recording,
             commands::stop_recording,
             commands::get_recording_info,
@@ -193,6 +197,7 @@ pub fn run() {
             commands::get_filmstrip,
             commands::save_screenshot,
             commands::save_caption,
+            commands::get_image_description,
             commands::open_file,
             commands::reveal_in_folder,
             commands::delete_file,
@@ -217,6 +222,7 @@ pub fn run() {
             commands::stop_scroll_capture,
             commands::cancel_scroll_capture,
             commands::open_scroll_overlay,
+            commands::start_scroll_capture_inline,
             commands::get_history,
             commands::get_stats,
             commands::get_autostart_enabled,
@@ -231,6 +237,7 @@ pub fn run() {
             share_compose::compose_share,
             // Debug commands
             commands::open_devtools,
+            commands::set_selector_mouse_passthrough,
             show_main_window,
             quit_app,
         ])

@@ -1,13 +1,48 @@
+@import "tailwindcss";
+
+@theme {
+  --color-background: #F9F9F7;
+  --color-foreground: #181818;
+  --color-primary: #CC785C;
+  --color-primary-foreground: #FFFFFF;
+  --color-secondary: #F0EEE6;
+  --color-secondary-foreground: #181818;
+  --color-muted: #F0EEE6;
+  --color-muted-foreground: #87867F;
+  --color-border: #E8E6DC;
+  --color-input: #E8E6DC;
+  --color-ring: #CC785C;
+  --color-card: #FFFFFF;
+  --color-card-foreground: #181818;
+  --color-accent: #F0EEE6;
+  --color-accent-foreground: #181818;
+  --color-destructive: #DC2626;
+  --color-destructive-foreground: #FFFFFF;
+  --radius-lg: 8px;
+  --radius-md: 6px;
+  --radius-sm: 4px;
+}
+
 :root {
   /* Warm Academic 色彩系统 */
   --background: #F9F9F7;
   --foreground: #181818;
   --primary: #CC785C;
   --primary-foreground: #FFFFFF;
+  --secondary: #F0EEE6;
+  --secondary-foreground: #181818;
   --muted: #F0EEE6;
   --muted-foreground: #87867F;
   --border: #E8E6DC;
+  --input: #E8E6DC;
+  --ring: #CC785C;
   --card: #FFFFFF;
+  --card-foreground: #181818;
+  --accent: #F0EEE6;
+  --accent-foreground: #181818;
+  --destructive: #DC2626;
+  --destructive-foreground: #FFFFFF;
+  --radius: 8px;
 
   font-family: Inter, system-ui, sans-serif;
   font-size: 14px;

@@ -284,13 +284,21 @@ fn compose_social(source: &RgbaImage, caption: &str, font: &FontRef) -> Result<R
     let img_y = text_block_height as i64;
     image::imageops::overlay(&mut canvas, source, img_x, img_y);
 
-    // Draw watermark
+    // Draw watermark with optional screenshot number
     let watermark_y = text_block_height + src_h + 8;
     let watermark_scale = PxScale::from(14.0);
-    let watermark = "via lovshot";
-    let wm_width = measure_text_width(watermark, watermark_scale);
+
+    let cfg = crate::config::load_config();
+    let watermark = if matches!(cfg.watermark_position, crate::config::WatermarkPosition::Brand) {
+        let count = crate::config::count_screenshots();
+        format!("#{} via lovshot", count)
+    } else {
+        "via lovshot".to_string()
+    };
+
+    let wm_width = measure_text_width(&watermark, watermark_scale);
     let wm_x = ((canvas_w - wm_width) / 2) as i32;
-    draw_text_mut(&mut canvas, TEXT_MUTED, wm_x, watermark_y as i32, watermark_scale, font, watermark);
+    draw_text_mut(&mut canvas, TEXT_MUTED, wm_x, watermark_y as i32, watermark_scale, font, &watermark);
 
     Ok(canvas)
 }

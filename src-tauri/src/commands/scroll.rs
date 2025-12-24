@@ -269,6 +269,23 @@ pub fn stop_scroll_capture(app: AppHandle, state: tauri::State<SharedState>) {
     if let Some(overlay) = app.get_webview_window("recording-overlay") {
         let _ = overlay.close();
     }
+
+    // Remove NonactivatingPanel style so buttons become clickable
+    #[cfg(target_os = "macos")]
+    if let Some(win) = app.get_webview_window("scroll-overlay") {
+        use objc::{msg_send, sel, sel_impl};
+        let _ = win.with_webview(|webview| {
+            unsafe {
+                let ns_window = webview.ns_window() as *mut objc::runtime::Object;
+                let current_mask: u64 = msg_send![ns_window, styleMask];
+                // Remove NSWindowStyleMaskNonactivatingPanel (128)
+                let new_mask = current_mask & !128u64;
+                let _: () = msg_send![ns_window, setStyleMask: new_mask];
+                // Make window key so it can receive events
+                let _: () = msg_send![ns_window, makeKeyAndOrderFront: std::ptr::null::<objc::runtime::Object>()];
+            }
+        });
+    }
 }
 
 /// Cancel scroll capture
@@ -520,10 +537,14 @@ pub fn open_scroll_overlay(
     win.show().map_err(|e| e.to_string())?;
 
     // Capture initial frame in background thread and emit when ready
+    // Add delay to let Selector window close first (otherwise its border gets captured)
     let state_clone = state.inner().clone();
     let app_clone = app.clone();
     let region_clone = region.clone();
     std::thread::spawn(move || {
+        // Wait for Selector window to close
+        std::thread::sleep(std::time::Duration::from_millis(150));
+
         if let Err(e) = capture_initial_scroll_frame(&state_clone, &region_clone) {
             eprintln!("[ERROR] Failed to capture initial scroll frame: {}", e);
             return;
@@ -551,20 +572,23 @@ pub fn open_scroll_overlay(
         }
     });
 
-    // Set window as non-activating panel on macOS
+    // Set window as non-activating during scroll capture (so scroll events pass through)
+    // This will be changed back to normal when user stops capture
     #[cfg(target_os = "macos")]
     {
         use objc::{msg_send, sel, sel_impl};
         let _ = win.with_webview(|webview| {
             unsafe {
                 let ns_window = webview.ns_window() as *mut objc::runtime::Object;
-                // Set high window level so it stays on top
+                // Set floating window level
                 let _: () = msg_send![ns_window, setLevel: 1000_i64];
-                // Get current style mask and add NonactivatingPanel + Resizable
+                // Add NonactivatingPanel style - allows scroll events to pass through
                 let current_mask: u64 = msg_send![ns_window, styleMask];
-                // NSWindowStyleMaskResizable = 8, NSWindowStyleMaskNonactivatingPanel = 128
-                let new_mask = current_mask | 8 | 128;
+                // NSWindowStyleMaskNonactivatingPanel = 128
+                let new_mask = current_mask | 128;
                 let _: () = msg_send![ns_window, setStyleMask: new_mask];
+                // Don't hide when app loses focus
+                let _: () = msg_send![ns_window, setHidesOnDeactivate: false];
             }
         });
     }
@@ -586,4 +610,61 @@ pub fn open_scroll_overlay(
 
     println!("[DEBUG][open_scroll_overlay] 悬浮窗创建成功 (non-activating)");
     Ok(())
+}
+
+/// Start inline scroll capture (unified window approach)
+/// Captures initial frame and starts scroll listener without opening a separate window
+#[tauri::command]
+pub fn start_scroll_capture_inline(
+    app: AppHandle,
+    state: tauri::State<SharedState>,
+    region: Region,
+) -> Result<ScrollCaptureProgress, String> {
+    println!("[DEBUG][start_scroll_capture_inline] 开始内联滚动捕获");
+
+    // Store region for capture
+    {
+        let mut s = state.lock().unwrap();
+        s.region = Some(region.clone());
+    }
+
+    // Register stop_scroll shortcuts
+    register_stop_scroll_shortcuts(&app);
+
+    // Capture initial frame
+    capture_initial_scroll_frame(state.inner(), &region)?;
+
+    // Generate preview
+    let (frame_count, total_height, preview) = {
+        let s = state.lock().unwrap();
+        let frame = s.scroll_stitched.as_ref().ok_or("No frame captured")?;
+        let preview = generate_preview_base64(frame, 600)?;
+        (s.scroll_frames.len(), frame.height(), preview)
+    };
+
+    // Activate the window under the capture region (center point)
+    #[cfg(target_os = "macos")]
+    {
+        let center_x = region.x as f64 + region.width as f64 / 2.0;
+        let center_y = region.y as f64 + region.height as f64 / 2.0;
+        crate::window_detect::activate_window_at_position(center_x, center_y);
+    }
+
+    // Start event-driven scroll listener (macOS)
+    #[cfg(target_os = "macos")]
+    {
+        println!("[DEBUG][start_scroll_capture_inline] 启动滚动监听");
+        start_scroll_listener(app.clone());
+    }
+
+    println!(
+        "[DEBUG][start_scroll_capture_inline] 完成! frame_count={}, height={}",
+        frame_count, total_height
+    );
+
+    Ok(ScrollCaptureProgress {
+        frame_count,
+        total_height,
+        preview_base64: preview,
+    })
 }

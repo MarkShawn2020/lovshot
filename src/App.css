@@ -125,17 +125,19 @@
   opacity: 0.6;
 }
 
-.footer-logo {
-  width: 18px;
-  height: 18px;
-  margin-right: 6px;
-}
-
 .footer-brand {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: 0.85rem;
   font-weight: 600;
   letter-spacing: 0.02em;
   opacity: 0.8;
+}
+
+.footer-logo {
+  width: 16px;
+  height: 16px;
 }
 
 .footer-hint {

@@ -69,6 +69,7 @@ export default function Selector() {
   }, [captionEnabled]);
 
   const startPos = useRef({ x: 0, y: 0 });
+  const endPos = useRef({ x: 0, y: 0 });
   const startRect = useRef<SelectionRect | null>(null);
   const selectionRef = useRef<HTMLDivElement>(null);
   const sizeRef = useRef<HTMLDivElement>(null);
@@ -483,6 +484,7 @@ export default function Selector() {
       if (!isSelecting) return;
       setIsSelecting(false);
 
+      endPos.current = { x: e.clientX, y: e.clientY };
       const x = Math.min(e.clientX, startPos.current.x);
       const y = Math.min(e.clientY, startPos.current.y);
       const w = Math.abs(e.clientX - startPos.current.x);
@@ -731,13 +733,79 @@ export default function Selector() {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [selectionRect, doCapture, closeWindow, scrollCaptureEnabled, mode, toggleStaticMode, isEditing, editor, exitEditMode, scrollCaptureActive, finishScrollCapture, cancelScrollCapture, showToolbar, mousePos]);
 
-  const toolbarStyle: React.CSSProperties = selectionRect
-    ? {
-        left: selectionRect.x + selectionRect.w / 2,
-        top: Math.min(selectionRect.y + selectionRect.h + 12, window.innerHeight - 60),
-        transform: "translateX(-50%)",
-      }
-    : {};
+  const toolbarStyle: React.CSSProperties = (() => {
+    if (!selectionRect) return {};
+
+    const TOOLBAR_WIDTH = 500;
+    const TOOLBAR_HEIGHT = 60;
+    const GAP = 12;
+    const PADDING = 8;
+
+    const { x, y, w, h } = selectionRect;
+    const ep = endPos.current;
+
+    // 计算各个方向的可用空间
+    const spaceBottom = window.innerHeight - (y + h + GAP);
+    const spaceTop = y - GAP;
+    const spaceRight = window.innerWidth - (x + w + GAP);
+    const spaceLeft = x - GAP;
+
+    // 计算工具栏中心到终点的距离
+    const dist = (cx: number, cy: number) => Math.hypot(cx - ep.x, cy - ep.y);
+
+    // 候选位置：外侧四个方向，工具栏中心尽量靠近终点
+    const clampX = (v: number) => Math.max(PADDING, Math.min(v, window.innerWidth - TOOLBAR_WIDTH - PADDING));
+    const clampY = (v: number) => Math.max(PADDING, Math.min(v, window.innerHeight - TOOLBAR_HEIGHT - PADDING));
+
+    const candidates: { left: number; top: number; dist: number }[] = [];
+
+    // 下方
+    if (spaceBottom >= TOOLBAR_HEIGHT) {
+      const l = clampX(ep.x - TOOLBAR_WIDTH / 2);
+      const t = y + h + GAP;
+      candidates.push({ left: l, top: t, dist: dist(l + TOOLBAR_WIDTH / 2, t + TOOLBAR_HEIGHT / 2) });
+    }
+    // 上方
+    if (spaceTop >= TOOLBAR_HEIGHT) {
+      const l = clampX(ep.x - TOOLBAR_WIDTH / 2);
+      const t = y - GAP - TOOLBAR_HEIGHT;
+      candidates.push({ left: l, top: t, dist: dist(l + TOOLBAR_WIDTH / 2, t + TOOLBAR_HEIGHT / 2) });
+    }
+    // 右侧
+    if (spaceRight >= TOOLBAR_WIDTH) {
+      const l = x + w + GAP;
+      const t = clampY(ep.y - TOOLBAR_HEIGHT / 2);
+      candidates.push({ left: l, top: t, dist: dist(l + TOOLBAR_WIDTH / 2, t + TOOLBAR_HEIGHT / 2) });
+    }
+    // 左侧
+    if (spaceLeft >= TOOLBAR_WIDTH) {
+      const l = x - GAP - TOOLBAR_WIDTH;
+      const t = clampY(ep.y - TOOLBAR_HEIGHT / 2);
+      candidates.push({ left: l, top: t, dist: dist(l + TOOLBAR_WIDTH / 2, t + TOOLBAR_HEIGHT / 2) });
+    }
+
+    let left: number, top: number;
+
+    if (candidates.length > 0) {
+      // 选择距离终点最近的外侧位置
+      const best = candidates.reduce((a, b) => (a.dist < b.dist ? a : b));
+      left = best.left;
+      top = best.top;
+    } else {
+      // 外侧都放不下，放在区域内靠近终点的位置
+      left = clampX(ep.x - TOOLBAR_WIDTH / 2);
+      top = clampY(ep.y - TOOLBAR_HEIGHT / 2);
+      // 确保不超出选区且有 GAP
+      left = Math.max(x + GAP, Math.min(left, x + w - TOOLBAR_WIDTH - GAP));
+      top = Math.max(y + GAP, Math.min(top, y + h - TOOLBAR_HEIGHT - GAP));
+    }
+
+    // 边界限制
+    left = Math.max(PADDING, Math.min(left, window.innerWidth - TOOLBAR_WIDTH - PADDING));
+    top = Math.max(PADDING, Math.min(top, window.innerHeight - TOOLBAR_HEIGHT - PADDING));
+
+    return { left, top };
+  })();
 
   const scrollCaptureUiActive = scrollCaptureActive || (mode === "scroll" && selectionRect);
   const showCrosshair = showHint && !isSelecting && !showToolbar && mousePos && !scrollCaptureUiActive;

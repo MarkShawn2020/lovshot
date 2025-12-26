@@ -60,25 +60,29 @@ export default function Preview() {
   const previewRef = useRef<HTMLDivElement>(null);
   captionRef.current = caption;
 
-  // Calculate template scale based on container size
+  // Contain-style scale when height is constrained
   useEffect(() => {
     const container = previewRef.current;
-    if (!container) return;
+    const tpl = renderRef.current;
+    if (!container || !tpl) return;
 
-    const TPL_WIDTH = 360;
     const updateScale = () => {
-      const rect = container.getBoundingClientRect();
-      const padding = 32; // 16px * 2
-      const availableWidth = rect.width - padding;
-      const availableHeight = rect.height - padding;
-      const tpl = container.firstElementChild as HTMLElement;
-      if (!tpl) return;
+      // Reset first to get true height
+      tpl.style.transform = '';
+      tpl.style.marginBottom = '';
 
+      const containerRect = container.getBoundingClientRect();
       const tplHeight = tpl.scrollHeight;
-      const scaleX = availableWidth / TPL_WIDTH;
-      const scaleY = tplHeight > 0 ? availableHeight / tplHeight : 1;
-      const scale = Math.min(scaleX, scaleY, 1);
-      tpl.style.setProperty('--tpl-scale', String(scale));
+      const availableHeight = containerRect.height - 32; // padding
+
+      if (tplHeight > availableHeight && tplHeight > 0) {
+        const scale = availableHeight / tplHeight;
+        tpl.style.transform = `scale(${scale})`;
+        tpl.style.transformOrigin = 'top center';
+        // Compensate layout space with negative margin
+        const heightDiff = tplHeight * (1 - scale);
+        tpl.style.marginBottom = `-${heightDiff}px`;
+      }
     };
 
     const observer = new ResizeObserver(updateScale);
@@ -207,9 +211,11 @@ export default function Preview() {
     const captureEl = renderRef.current;
     if (!captureEl) return null;
 
-    // 临时移除 scale，确保截图与原始尺寸一致
-    const originalScale = captureEl.style.getPropertyValue('--tpl-scale');
-    captureEl.style.setProperty('--tpl-scale', '1');
+    // 临时移除 transform 和 margin，确保截图是原始尺寸
+    const originalTransform = captureEl.style.transform;
+    const originalMargin = captureEl.style.marginBottom;
+    captureEl.style.transform = '';
+    captureEl.style.marginBottom = '';
     void captureEl.offsetHeight;
 
     try {
@@ -227,11 +233,8 @@ export default function Preview() {
       console.error("[captureTemplate] modern-screenshot error:", err);
       return null;
     } finally {
-      if (originalScale) {
-        captureEl.style.setProperty('--tpl-scale', originalScale);
-      } else {
-        captureEl.style.removeProperty('--tpl-scale');
-      }
+      captureEl.style.transform = originalTransform;
+      captureEl.style.marginBottom = originalMargin;
     }
   };
 

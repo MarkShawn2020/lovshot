@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.18.3
+
+### Patch Changes
+
+- refactor(annotation): use state instead of ref for history tracking
+
 ## 0.18.2
 
 ### Patch Changes

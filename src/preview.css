@@ -215,21 +215,34 @@ body,
 /* ===== Clean Template ===== */
 .tpl-clean {
   display: flex;
-  flex-direction: column;
   align-items: center;
+  justify-content: center;
+  background: #F9F9F7;
+  padding: 16px;
+}
+
+.tpl-clean-inner {
+  display: flex;
+  flex-direction: column;
+  /* 不用 align-items: center，用默认的 stretch，让 caption 宽度被图片锁定 */
 }
 
 .tpl-clean img {
   border-radius: 8px;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+  align-self: center; /* 图片单独居中 */
 }
 
 .tpl-clean .tpl-caption {
-  margin-top: 12px; /* 用 margin 替代 gap，html2canvas 兼容性更好 */
-  color: #181818; /* 用具体值替代 var(--foreground) */
-  text-align: center;
+  margin-top: 12px;
+  color: #181818;
+  text-align: center; /* 文字居中对齐，但元素宽度 stretch 到容器 */
   font-style: italic;
   opacity: 0.8;
+}
+
+.tpl-clean .tpl-watermark {
+  text-align: right; /* 水印文字右对齐 */
 }
 
 /* ===== Card Template ===== */

@@ -203,9 +203,9 @@ export default function Preview() {
     const captureEl = renderRef.current;
     if (!captureEl) return null;
 
-    // 临时移除 transform 和 margin，确保截图是原始尺寸
-    const originalTransform = captureEl.style.transform;
-    const originalMargin = captureEl.style.marginBottom;
+    // 保存并移除 transform/margin，确保截图是原始尺寸
+    const savedTransform = captureEl.style.transform;
+    const savedMargin = captureEl.style.marginBottom;
     captureEl.style.transform = '';
     captureEl.style.marginBottom = '';
     void captureEl.offsetHeight;
@@ -225,8 +225,8 @@ export default function Preview() {
       console.error("[captureTemplate] modern-screenshot error:", err);
       return null;
     } finally {
-      captureEl.style.transform = originalTransform;
-      captureEl.style.marginBottom = originalMargin;
+      captureEl.style.transform = savedTransform;
+      captureEl.style.marginBottom = savedMargin;
     }
   };
 
@@ -276,9 +276,11 @@ export default function Preview() {
       case "clean":
         return (
           <div className="tpl-clean">
-            <img src={imageSrc} alt="" onLoad={handleImageLoad} />
-            {caption && <p className="tpl-caption">{caption}</p>}
-            {watermark}
+            <div className="tpl-clean-inner">
+              <img src={imageSrc} alt="" onLoad={handleImageLoad} />
+              {caption && <p className="tpl-caption">{caption}</p>}
+              {watermark}
+            </div>
           </div>
         );
 

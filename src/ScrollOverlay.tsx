@@ -96,7 +96,6 @@ export default function ScrollOverlay() {
   }, [closeAndCancel]);
 
   // LOCAL ESC key listener as fallback (for when global shortcut doesn't work)
-  // This is needed because scroll-overlay is a non-activating panel
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -104,11 +103,26 @@ export default function ScrollOverlay() {
         closeAndCancel();
       }
     };
+    const handleFocus = () => console.log("[DEBUG][ScrollOverlay] Window FOCUSED");
+    const handleBlur = () => console.log("[DEBUG][ScrollOverlay] Window BLURRED");
+    const handleGlobalMouseDown = (e: MouseEvent) => {
+      console.log("[DEBUG][ScrollOverlay] Global mousedown on:", (e.target as HTMLElement).tagName, (e.target as HTMLElement).className);
+    };
+
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    window.addEventListener("focus", handleFocus);
+    window.addEventListener("blur", handleBlur);
+    document.addEventListener("mousedown", handleGlobalMouseDown, true);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("focus", handleFocus);
+      window.removeEventListener("blur", handleBlur);
+      document.removeEventListener("mousedown", handleGlobalMouseDown, true);
+    };
   }, [closeAndCancel]);
 
   const handleStop = async (e: React.MouseEvent) => {
+    console.log("[DEBUG][ScrollOverlay] handleStop triggered, event type:", e.type);
     e.preventDefault();
     e.stopPropagation();
     await invoke("stop_scroll_capture");
@@ -157,8 +171,17 @@ export default function ScrollOverlay() {
     await getCurrentWindow().startResizeDragging(direction);
   };
 
+  // Auto-focus window when mouse enters to solve "click twice" problem
+  const handleMouseEnter = async () => {
+    try {
+      await getCurrentWindow().setFocus();
+    } catch {
+      // ignore
+    }
+  };
+
   return (
-    <div className="scroll-overlay-container">
+    <div className="scroll-overlay-container" onMouseEnter={handleMouseEnter}>
       {/* Window resize handles */}
       <div className="resize-handle resize-n" onMouseDown={startResize("North")} />
       <div className="resize-handle resize-s" onMouseDown={startResize("South")} />
@@ -169,7 +192,7 @@ export default function ScrollOverlay() {
       <div className="resize-handle resize-sw" onMouseDown={startResize("SouthWest")} />
       <div className="resize-handle resize-se" onMouseDown={startResize("SouthEast")} />
 
-      <button className="btn-close" onMouseDown={handleCancel} title="Close">
+      <button className="btn-close" onPointerDown={handleCancel as any} title="Close">
         <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
           <path d="M1 1L13 13M13 1L1 13" />
         </svg>
@@ -195,11 +218,11 @@ export default function ScrollOverlay() {
 
       <div className="scroll-overlay-actions">
         {!isStopped ? (
-          <button className="btn-stop" onMouseDown={handleStop}>Stop</button>
+          <button className="btn-stop" onPointerDown={handleStop as any}>Stop</button>
         ) : (
           <>
-            <button className="btn-copy" onMouseDown={handleCopy}>Copy</button>
-            <button className="btn-save" onMouseDown={handleFinish}>Save</button>
+            <button className="btn-copy" onPointerDown={handleCopy as any}>Copy</button>
+            <button className="btn-save" onPointerDown={handleFinish as any}>Save</button>
           </>
         )}
       </div>

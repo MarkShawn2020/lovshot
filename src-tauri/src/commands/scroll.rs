@@ -270,17 +270,13 @@ pub fn stop_scroll_capture(app: AppHandle, state: tauri::State<SharedState>) {
         let _ = overlay.close();
     }
 
-    // Remove NonactivatingPanel style so buttons become clickable
+    // Ensure window can receive events after stop
     #[cfg(target_os = "macos")]
     if let Some(win) = app.get_webview_window("scroll-overlay") {
         use objc::{msg_send, sel, sel_impl};
         let _ = win.with_webview(|webview| {
             unsafe {
                 let ns_window = webview.ns_window() as *mut objc::runtime::Object;
-                let current_mask: u64 = msg_send![ns_window, styleMask];
-                // Remove NSWindowStyleMaskNonactivatingPanel (128)
-                let new_mask = current_mask & !128u64;
-                let _: () = msg_send![ns_window, setStyleMask: new_mask];
                 // Make window key so it can receive events
                 let _: () = msg_send![ns_window, makeKeyAndOrderFront: std::ptr::null::<objc::runtime::Object>()];
             }
@@ -474,10 +470,9 @@ pub fn open_scroll_overlay(
     if let Some(win) = app.get_webview_window("scroll-overlay") {
         let _ = win.close();
     }
-    // Ensure border overlay is not visible during scroll capture
-    if let Some(overlay) = app.get_webview_window("recording-overlay") {
-        let _ = overlay.close();
-    }
+
+    // Create static border overlay to show capture region
+    crate::tray::create_recording_overlay(&app, &region, true);
 
     // Get screen info for positioning
     let screens = Screen::all().map_err(|e| e.to_string())?;
@@ -572,23 +567,26 @@ pub fn open_scroll_overlay(
         }
     });
 
-    // Set window as non-activating during scroll capture (so scroll events pass through)
-    // This will be changed back to normal when user stops capture
+    // Configure window for scroll capture
+    // Note: We DON'T use NonactivatingPanel because CGEventTap captures scroll events at system level
+    // This allows buttons to work on first click
     #[cfg(target_os = "macos")]
     {
-        use objc::{msg_send, sel, sel_impl};
+        use objc::{class, msg_send, sel, sel_impl};
         let _ = win.with_webview(|webview| {
             unsafe {
                 let ns_window = webview.ns_window() as *mut objc::runtime::Object;
-                // Set floating window level
-                let _: () = msg_send![ns_window, setLevel: 1000_i64];
-                // Add NonactivatingPanel style - allows scroll events to pass through
-                let current_mask: u64 = msg_send![ns_window, styleMask];
-                // NSWindowStyleMaskNonactivatingPanel = 128
-                let new_mask = current_mask | 128;
-                let _: () = msg_send![ns_window, setStyleMask: new_mask];
+                // Use very high window level to stay above Dock
+                let _: () = msg_send![ns_window, setLevel: 8000_i64];
                 // Don't hide when app loses focus
                 let _: () = msg_send![ns_window, setHidesOnDeactivate: false];
+                // Prevent mouse events from passing through to Dock
+                let _: () = msg_send![ns_window, setIgnoresMouseEvents: false];
+                // Set a minimal background color to capture mouse events
+                let ns_color_class = class!(NSColor);
+                let clear_color: *mut objc::runtime::Object =
+                    msg_send![ns_color_class, colorWithWhite:0.0_f64 alpha:0.01_f64];
+                let _: () = msg_send![ns_window, setBackgroundColor: clear_color];
             }
         });
     }

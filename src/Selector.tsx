@@ -309,12 +309,29 @@ export default function Selector() {
       await invoke("start_recording");
       await closeWindow();
     } else if (mode === "scroll") {
-      // Scroll mode: 内联滚动捕获（统一窗口方案）
-      console.log("[Selector] 进入 scroll 模式（内联）");
+      // Scroll mode: 内联滚动捕获，使用智能穿透
+      console.log("[Selector] 进入 scroll 模式（智能穿透）");
 
       try {
-        // 启用鼠标穿透，让滚动事件传递到下层窗口
-        await invoke("set_selector_mouse_passthrough", { enabled: true });
+        // 计算面板位置（与 UI 中的逻辑一致）
+        const PANEL_WIDTH = 200;
+        const PANEL_HEIGHT = 280;
+        const MARGIN = 12;
+        const screenWidth = window.innerWidth;
+        const regionRight = region.x + region.width;
+        const rightSpace = screenWidth - regionRight;
+        const panelX = rightSpace >= PANEL_WIDTH + MARGIN
+          ? regionRight + MARGIN
+          : Math.max(0, region.x - PANEL_WIDTH - MARGIN);
+        const panelY = Math.max(MARGIN, Math.min(region.y, window.innerHeight - PANEL_HEIGHT - MARGIN));
+
+        // 设置智能穿透（面板区域可点击，其他区域穿透）
+        await invoke("setup_scroll_capture_passthrough", {
+          panelX: Math.round(panelX),
+          panelY: Math.round(panelY),
+          panelWidth: PANEL_WIDTH,
+          panelHeight: PANEL_HEIGHT,
+        });
         // 启动滚动捕获
         const progress = await invoke<{ frame_count: number; total_height: number; preview_base64: string }>(
           "start_scroll_capture_inline",
@@ -326,7 +343,6 @@ export default function Selector() {
         setScrollCaptureActive(true);
       } catch (e) {
         console.error("[Selector] Failed to start scroll capture:", e);
-        await invoke("set_selector_mouse_passthrough", { enabled: false });
       }
     }
   }, [selectionRect, mode, closeWindow, isEditing, editor.annotations.length, captionEnabled]);
@@ -514,8 +530,24 @@ export default function Selector() {
             height: Math.round(h),
           };
           try {
-            await invoke("set_region", { region });
-            await invoke("set_selector_mouse_passthrough", { enabled: true });
+            // 计算面板位置
+            const PANEL_WIDTH = 200;
+            const PANEL_HEIGHT = 280;
+            const MARGIN = 12;
+            const screenWidth = window.innerWidth;
+            const regionRight = region.x + region.width;
+            const rightSpace = screenWidth - regionRight;
+            const panelX = rightSpace >= PANEL_WIDTH + MARGIN
+              ? regionRight + MARGIN
+              : Math.max(0, region.x - PANEL_WIDTH - MARGIN);
+            const panelY = Math.max(MARGIN, Math.min(region.y, window.innerHeight - PANEL_HEIGHT - MARGIN));
+
+            await invoke("setup_scroll_capture_passthrough", {
+              panelX: Math.round(panelX),
+              panelY: Math.round(panelY),
+              panelWidth: PANEL_WIDTH,
+              panelHeight: PANEL_HEIGHT,
+            });
             const progress = await invoke<{ frame_count: number; total_height: number; preview_base64: string }>(
               "start_scroll_capture_inline",
               { region }
@@ -526,7 +558,6 @@ export default function Selector() {
             setScrollCaptureActive(true);
           } catch (e) {
             console.error("[Selector] Failed to start scroll capture:", e);
-            await invoke("set_selector_mouse_passthrough", { enabled: false });
           }
         } else {
           setShowToolbar(true);
@@ -563,7 +594,7 @@ export default function Selector() {
             selectionRef.current.style.display = "block";
           }
 
-          // scroll 模式：选区确认后直接进入滚动捕获（内联）
+          // scroll 模式：内联滚动捕获
           if (mode === "scroll") {
             const region = {
               x: Math.round(windowInfo.x),
@@ -572,8 +603,24 @@ export default function Selector() {
               height: Math.round(finalH),
             };
             try {
-              await invoke("set_region", { region });
-              await invoke("set_selector_mouse_passthrough", { enabled: true });
+              // 计算面板位置
+              const PANEL_WIDTH = 200;
+              const PANEL_HEIGHT = 280;
+              const MARGIN = 12;
+              const screenWidth = window.innerWidth;
+              const regionRight = region.x + region.width;
+              const rightSpace = screenWidth - regionRight;
+              const panelX = rightSpace >= PANEL_WIDTH + MARGIN
+                ? regionRight + MARGIN
+                : Math.max(0, region.x - PANEL_WIDTH - MARGIN);
+              const panelY = Math.max(MARGIN, Math.min(region.y, window.innerHeight - PANEL_HEIGHT - MARGIN));
+
+              await invoke("setup_scroll_capture_passthrough", {
+                panelX: Math.round(panelX),
+                panelY: Math.round(panelY),
+                panelWidth: PANEL_WIDTH,
+                panelHeight: PANEL_HEIGHT,
+              });
               const progress = await invoke<{ frame_count: number; total_height: number; preview_base64: string }>(
                 "start_scroll_capture_inline",
                 { region }
@@ -584,7 +631,6 @@ export default function Selector() {
               setScrollCaptureActive(true);
             } catch (e) {
               console.error("[Selector] Failed to start scroll capture:", e);
-              await invoke("set_selector_mouse_passthrough", { enabled: false });
             }
           } else {
             setShowToolbar(true);
@@ -1200,98 +1246,117 @@ export default function Selector() {
             <div className="corner-mark corner-br" />
           </div>
 
-          {/* 底部预览条 - 鼠标进入时禁用穿透，离开时启用穿透 */}
-          <div
-            className="scroll-capture-bar"
-            onMouseEnter={async () => {
-              await invoke("set_selector_mouse_passthrough", { enabled: false });
-            }}
-            onMouseLeave={async () => {
-              await invoke("set_selector_mouse_passthrough", { enabled: true });
-            }}
-            style={{
-              position: "fixed",
-              left: 0,
-              right: 0,
-              bottom: 0,
-              height: 80,
-              background: "rgba(24, 24, 24, 0.95)",
-              borderTop: "1px solid rgba(204, 120, 92, 0.3)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 24,
-              zIndex: 200,
-            }}
-          >
-            {/* 缩略图预览 */}
-            {scrollPreview && (
+          {/* 浮动预览面板 - 放在选区旁边 */}
+          {(() => {
+            const PANEL_WIDTH = 200;
+            const PANEL_HEIGHT = 280;
+            const MARGIN = 12;
+            const screenWidth = window.innerWidth;
+            const regionRight = selectionRect.x + selectionRect.w;
+            const rightSpace = screenWidth - regionRight;
+
+            // 优先放右侧，空间不足放左侧
+            const panelX = rightSpace >= PANEL_WIDTH + MARGIN
+              ? regionRight + MARGIN
+              : Math.max(0, selectionRect.x - PANEL_WIDTH - MARGIN);
+            const panelY = Math.max(MARGIN, Math.min(selectionRect.y, window.innerHeight - PANEL_HEIGHT - MARGIN));
+
+            return (
               <div
+                className="scroll-capture-panel"
                 style={{
-                  height: 60,
-                  maxWidth: 200,
-                  borderRadius: 4,
-                  overflow: "hidden",
-                  border: "1px solid rgba(255,255,255,0.2)",
+                  position: "fixed",
+                  left: panelX,
+                  top: panelY,
+                  width: PANEL_WIDTH,
+                  background: "rgba(24, 24, 24, 0.95)",
+                  border: "1px solid rgba(204, 120, 92, 0.3)",
+                  borderRadius: 12,
+                  padding: 12,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 12,
+                  zIndex: 200,
+                  boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
                 }}
               >
-                <img
-                  src={scrollPreview}
-                  alt=""
-                  style={{ height: "100%", width: "auto", objectFit: "contain" }}
-                  draggable={false}
-                />
+                {/* 缩略图预览 */}
+                {scrollPreview && (
+                  <div
+                    style={{
+                      height: 140,
+                      borderRadius: 6,
+                      overflow: "hidden",
+                      border: "1px solid rgba(255,255,255,0.1)",
+                      display: "flex",
+                      justifyContent: "center",
+                      alignItems: "center",
+                      background: "rgba(0,0,0,0.3)",
+                    }}
+                  >
+                    <img
+                      src={scrollPreview}
+                      alt=""
+                      style={{ maxHeight: "100%", maxWidth: "100%", objectFit: "contain" }}
+                      draggable={false}
+                    />
+                  </div>
+                )}
+
+                {/* 统计信息 */}
+                <div style={{ color: "#fff", fontSize: 12, textAlign: "center" }}>
+                  <span style={{ color: "#CC785C", fontWeight: 600 }}>{scrollFrameCount}</span> 帧
+                  <span style={{ margin: "0 6px", opacity: 0.5 }}>·</span>
+                  <span style={{ color: "#CC785C", fontWeight: 600 }}>{scrollTotalHeight}</span> px
+                </div>
+
+                {/* 操作按钮 */}
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    onMouseDown={finishScrollCapture}
+                    style={{
+                      flex: 1,
+                      padding: "10px 12px",
+                      background: "#CC785C",
+                      color: "#fff",
+                      border: "none",
+                      borderRadius: 6,
+                      fontSize: 13,
+                      fontWeight: 500,
+                      cursor: "pointer",
+                    }}
+                  >
+                    完成
+                  </button>
+                  <button
+                    onMouseDown={cancelScrollCapture}
+                    style={{
+                      flex: 1,
+                      padding: "10px 12px",
+                      background: "rgba(255,255,255,0.1)",
+                      color: "#fff",
+                      border: "1px solid rgba(255,255,255,0.2)",
+                      borderRadius: 6,
+                      fontSize: 13,
+                      fontWeight: 500,
+                      cursor: "pointer",
+                    }}
+                  >
+                    取消
+                  </button>
+                </div>
+
+                {/* 快捷键提示 */}
+                <div style={{ color: "rgba(255,255,255,0.4)", fontSize: 10, textAlign: "center" }}>
+                  <kbd style={{ background: "rgba(255,255,255,0.1)", padding: "2px 5px", borderRadius: 3, marginRight: 3 }}>Enter</kbd>
+                  完成
+                  <span style={{ margin: "0 6px" }}>·</span>
+                  <kbd style={{ background: "rgba(255,255,255,0.1)", padding: "2px 5px", borderRadius: 3, marginRight: 3 }}>ESC</kbd>
+                  取消
+                </div>
               </div>
-            )}
-
-            {/* 统计信息 */}
-            <div style={{ color: "#fff", fontSize: 14 }}>
-              <span style={{ color: "#CC785C", fontWeight: 600 }}>{scrollFrameCount}</span> 帧
-              <span style={{ margin: "0 8px", opacity: 0.5 }}>·</span>
-              <span style={{ color: "#CC785C", fontWeight: 600 }}>{scrollTotalHeight}</span> px
-            </div>
-
-            {/* 操作按钮 */}
-            <div style={{ display: "flex", gap: 8 }}>
-              <button
-                onMouseDown={finishScrollCapture}
-                style={{
-                  padding: "8px 16px",
-                  background: "#CC785C",
-                  color: "#fff",
-                  border: "none",
-                  borderRadius: 6,
-                  fontSize: 13,
-                  fontWeight: 500,
-                  cursor: "pointer",
-                }}
-              >
-                完成
-              </button>
-              <button
-                onMouseDown={cancelScrollCapture}
-                style={{
-                  padding: "8px 16px",
-                  background: "rgba(255,255,255,0.1)",
-                  color: "#fff",
-                  border: "1px solid rgba(255,255,255,0.2)",
-                  borderRadius: 6,
-                  fontSize: 13,
-                  fontWeight: 500,
-                  cursor: "pointer",
-                }}
-              >
-                取消
-              </button>
-            </div>
-
-            {/* 快捷键提示 */}
-            <div style={{ color: "rgba(255,255,255,0.5)", fontSize: 11 }}>
-              <kbd style={{ background: "rgba(255,255,255,0.1)", padding: "2px 6px", borderRadius: 3, marginRight: 4 }}>Enter</kbd>
-              /
-              <kbd style={{ background: "rgba(255,255,255,0.1)", padding: "2px 6px", borderRadius: 3, margin: "0 4px" }}>ESC</kbd>
-            </div>
-          </div>
+            );
+          })()}
         </>
       )}
     </div>

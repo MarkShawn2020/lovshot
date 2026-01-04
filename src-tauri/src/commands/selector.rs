@@ -473,3 +473,88 @@ pub fn set_selector_mouse_passthrough(app: AppHandle, enabled: bool) -> Result<(
     );
     Ok(())
 }
+
+/// Setup scroll capture mode with smart passthrough
+/// Uses a timer to check mouse position and toggle passthrough
+/// When mouse is in panel area, disable passthrough (clickable)
+/// Otherwise enable passthrough for scrolling
+#[tauri::command]
+pub fn setup_scroll_capture_passthrough(
+    app: AppHandle,
+    panel_x: i32,
+    panel_y: i32,
+    panel_width: i32,
+    panel_height: i32,
+) -> Result<(), String> {
+    let win = app
+        .get_webview_window("selector")
+        .ok_or("Selector window not found")?;
+
+    // Initially disable passthrough so user can click panel
+    win.set_ignore_cursor_events(false)
+        .map_err(|e| e.to_string())?;
+
+    // Start a background thread to monitor mouse position
+    let app_clone = app.clone();
+    std::thread::spawn(move || {
+        use std::time::Duration;
+
+        loop {
+            std::thread::sleep(Duration::from_millis(50));
+
+            let Some(win) = app_clone.get_webview_window("selector") else {
+                println!("[scroll_passthrough] Window closed, stopping monitor");
+                break;
+            };
+
+            #[cfg(target_os = "macos")]
+            {
+                use objc::{msg_send, sel, sel_impl, runtime::Object};
+
+                let _ = win.with_webview(move |webview| {
+                    unsafe {
+                        let ns_window = webview.ns_window() as *mut Object;
+
+                        // Get current mouse location (screen coordinates)
+                        let ns_event_class = objc::class!(NSEvent);
+                        let mouse_loc: cocoa::foundation::NSPoint = msg_send![
+                            ns_event_class,
+                            mouseLocation
+                        ];
+
+                        // Get window frame
+                        let window_frame: cocoa::foundation::NSRect = msg_send![ns_window, frame];
+
+                        // Convert to window coordinates (Y is flipped in macOS)
+                        let local_x = mouse_loc.x - window_frame.origin.x;
+                        let local_y = window_frame.size.height - (mouse_loc.y - window_frame.origin.y);
+
+                        // Check if mouse is in panel area
+                        let in_panel = local_x >= panel_x as f64
+                            && local_x <= (panel_x + panel_width) as f64
+                            && local_y >= panel_y as f64
+                            && local_y <= (panel_y + panel_height) as f64;
+
+                        // Get current passthrough state
+                        let currently_ignoring: bool = msg_send![ns_window, ignoresMouseEvents];
+
+                        // Only update if state needs to change
+                        if in_panel && currently_ignoring {
+                            // Mouse in panel, disable passthrough
+                            let _: () = msg_send![ns_window, setIgnoresMouseEvents: false];
+                        } else if !in_panel && !currently_ignoring {
+                            // Mouse outside panel, enable passthrough for scrolling
+                            let _: () = msg_send![ns_window, setIgnoresMouseEvents: true];
+                        }
+                    }
+                });
+            }
+        }
+    });
+
+    println!(
+        "[setup_scroll_capture_passthrough] Started mouse monitor, panel=({},{},{},{})",
+        panel_x, panel_y, panel_width, panel_height
+    );
+    Ok(())
+}

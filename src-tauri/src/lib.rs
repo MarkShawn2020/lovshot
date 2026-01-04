@@ -241,6 +241,7 @@ pub fn run() {
             // Debug commands
             commands::open_devtools,
             commands::set_selector_mouse_passthrough,
+            commands::setup_scroll_capture_passthrough,
             show_main_window,
             quit_app,
         ])

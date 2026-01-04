@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.20.0
+
+### Minor Changes
+
+- feat(scroll): add smart passthrough for scroll capture panel
+
+  - Panel area remains clickable while other areas pass through scroll events
+  - Improved window level and event handling for better Dock interaction
+
 ## 0.19.0
 
 ### Minor Changes
